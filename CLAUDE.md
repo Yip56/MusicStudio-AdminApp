@@ -3,49 +3,194 @@
 ## Project Overview
 - **Name:** StudioOS
 - **Purpose:** Music studio admin panel — manage students, teachers, rooms, payroll, attendance, scheduling
-- **Stack:** React 18, Vite 5, pure CSS-in-JS (no external UI library), no backend (in-memory state)
+- **Stack:** React 18, Vite 5, pure CSS-in-JS (no external UI library)
+- **Backend:** Firebase Auth (Google Sign-In) + Firestore (rules deployed, project: `ark-music-portal`)
+- **In-memory state:** students, teachers, rooms, fees, attendance, one-off sessions (not yet persisted to Firestore — only `users` and `notifications` collections are in Firestore)
 
-## Architecture
-- `src/data/seed.js` — all constants (`GRADE_LABELS`, `INSTRUMENTS`, `DAYS_OF_WEEK`, `HOURS`, `STATUS_META`, `ROOM_COLORS`) and seed data (`SEED_ROOMS`, `SEED_FEES`, `SEED_TEACHERS`, `SEED_STUDENTS`, `SEED_ATTENDANCE`)
-- `src/utils/helpers.js` — pure calculation functions: `uid()`, `getRecurringDates()`, `getSessionsForDate()`, `getMergedSessionsForDate()`, `getScheduledCountForMonth()`, `getAttendedCountForMonth()`, `calcStudentPayroll()`, `timesOverlap()`, `fmtDate()`
-- `src/utils/tokens.js` — dark/light theme token objects (`bg`, `panel`, `border`, `text`, `accent`, etc.) and `getTokens(theme)` selector
-- `src/hooks/useTheme.js` — `useTheme()` hook, persists to localStorage
-- `src/components/UI.jsx` — shared primitives: `Avatar`, `Badge`, `Card`, `Stat`, `Inp`, `Sel`, `Btn`, `Modal`, `SectionTitle`, `THead`, `Checkbox`
-- `src/views/Dashboard.jsx` — overview stats and today's session list
-- `src/views/Students.jsx` — student CRUD with recurring schedule (`dayOfWeek`, `startTime`, `endTime`, `roomId`) and `attendanceBased` toggle
-- `src/views/CalendarView.jsx` — split month+day calendar, room columns, hover attendance picker on session cards
-- `src/views/Payroll.jsx` — per-teacher commission breakdown, admin flat fee config, per-student gross/teacher/admin split
-- `src/views/GradesAndFees.jsx` — student grade management and per-instrument fee table editor
-- `src/views/RoomsView.jsx` — room CRUD, availability detail panel, free/occupied filter, timeline bar
-- `src/App.jsx` — root layout, sidebar nav, theme toggle, global state initialization
+---
 
-## Key Business Logic
-- Sessions are generated automatically from student recurring schedules (no manual calendar entry needed)
-- Attendance is stored as overrides (`studentId` + `date` + `status`) against the recurring schedule
-- Payroll: if `student.attendanceBased` → gross = (attended/scheduled) × fee; else → gross = full fee
-- Admin flat fee is deducted from gross first, then remainder is split by `teacher.commissionPct / (100 - commissionPct)`
-- Each teacher has their own `commissionPct` (not a global split)
-- Rooms support conflict detection via `timesOverlap()`
+## Running the Project
+
+```bash
+npm run dev          # start dev server at http://localhost:5173
+npm run build        # production build → dist/
+firebase deploy --only firestore:rules   # push security rules
+firebase deploy --only hosting           # deploy built app (run build first)
+npm run build && firebase deploy --only hosting  # build + deploy in one go
+```
+
+---
+
+## File Structure
+
+```
+src/
+  firebase.js              Firebase init (auth, db, googleProvider, authSecondary)
+  App.jsx                  Root layout, auth gating, sidebar, notification drawer
+  data/seed.js             All constants + seed data (GRADE_LABELS, STATUS_META, etc.)
+  utils/
+    helpers.js             Pure functions: uid(), timesOverlap(), calcStudentPayroll(), etc.
+    tokens.js              Dark/light theme token objects + getTokens(theme)
+  hooks/
+    useTheme.js            Theme toggle, persists to localStorage
+    useAuth.js             Google Sign-In, Firestore user doc fetch, role resolution
+    useNotifications.js    Real-time Firestore listener for pending notifications
+  components/UI.jsx        Shared primitives: Avatar, Badge, Card, Stat, Inp, Sel, Btn, Modal, etc.
+  views/
+    Login.jsx              Full-screen sign-in card (shown when not authenticated)
+    AccessDenied.jsx       Shown when user has no Firestore doc (role = "denied")
+    Dashboard.jsx          Overview stats + today's sessions
+    Students.jsx           Student CRUD + grade request flow (teacher-scoped)
+    CalendarView.jsx       Month+day calendar, room columns, attendance picker, session booking
+    Payroll.jsx            Per-teacher commission breakdown (teacher-scoped)
+    GradesAndFees.jsx      Grade editor + per-instrument fee table (admin/sysadmin only)
+    RoomsView.jsx          Room CRUD, availability panel, free/occupied filter, timeline
+    UserManagement.jsx     Sysadmin-only: create/edit/revoke Firebase Auth + Firestore accounts
+firestore.rules            Firestore security rules (source of truth — deploy via CLI)
+firestore.indexes.json     Firestore composite index definitions
+```
+
+---
+
+## Roles & Access
+
+| Role | Views | Permissions |
+|---|---|---|
+| `teacher` | Calendar, Students | Own students only; mark attendance; book sessions; request grade changes |
+| `admin` | All except User Mgmt | Full access to all data |
+| `sysadmin` | Everything | Same as admin + create/edit/revoke user accounts |
+| `denied` | Access Denied screen | No Firestore `users` doc exists for this Google account |
+
+Auth gate order in App.jsx: **loading spinner → Login → AccessDenied → main app**
+
+---
+
+## Firestore Collections
+
+### `users/{uid}`
+| Field | Type | Notes |
+|---|---|---|
+| `uid` | string | Same as document ID |
+| `email` | string | Lowercase |
+| `displayName` | string | |
+| `photoURL` | string \| null | |
+| `role` | string | `teacher`, `admin`, or `sysadmin` |
+| `teacherId` | string \| null | Links to in-memory teacher ID — required for teacher role |
+| `createdAt` | timestamp | |
+| `createdBy` | string | UID of the sysadmin who created this account |
+
+### `notifications/{id}`
+| Field | Type | Notes |
+|---|---|---|
+| `type` | string | `clash_request` or `grade_request` |
+| `fromTeacherId` | string | In-memory teacher ID of requester |
+| `toTeacherId` | string | For clash: teacher whose slot is affected |
+| `toRole` | string | For grade: `"admin"` |
+| `studentId` | string | Relevant student |
+| `requestedDate` | string | `YYYY-MM-DD` |
+| `requestedStartTime` | string | `HH:MM` |
+| `requestedEndTime` | string | `HH:MM` |
+| `requestedRoomId` | string | For clash requests |
+| `requestedGrade` | string | For grade requests |
+| `sessionId` | string | ID of the oneOffSession in App state (clash only) |
+| `reason` | string | |
+| `status` | string | `pending`, `approved`, or `rejected` |
+| `createdAt` | timestamp | |
+| `resolvedAt` | timestamp \| null | |
+| `resolvedBy` | string \| null | UID of resolver |
+
+---
 
 ## Theme System
-- All components receive `T` (token object) as a prop from `App.jsx`
-- Use `T.bg`, `T.panel`, `T.text`, `T.muted`, `T.accent`, `T.border`, `T.border2`, `T.dim`, `T.input`, `T.rowAlt`, `T.hover`, `T.sidebar`, `T.textSub`
-- Never hardcode colors; always use T tokens so light/dark mode works correctly
-- Active/selected states: use `T.accent` for color, `T.accent+"22"` for background
-- Inactive states: MUST explicitly set `color` to `T.muted` and `background` to `"transparent"` or `"none"`
+- All views receive `T` (token object) as a prop from App.jsx
+- Tokens: `T.bg`, `T.panel`, `T.panel2`, `T.text`, `T.textSub`, `T.muted`, `T.accent`, `T.border`, `T.border2`, `T.dim`, `T.input`, `T.rowAlt`, `T.hover`, `T.sidebar`
+- Never hardcode colors — always use T tokens
+- Active state: `color: T.accent`, `background: T.accent + "22"`
+- Inactive state: MUST explicitly set `color: T.muted`, `background: "transparent"`
 
-## Developer Notes
-- To add a new view: create `src/views/MyView.jsx`, add it to `NAV` array and `views` object in `App.jsx`, pass shared props
-- To add a new token: add to both `dark` and `light` objects in `tokens.js`
-- All monetary values in RM (Malaysian Ringgit)
-- Dates are `"YYYY-MM-DD"` strings throughout
-- Times are `"HH:MM"` 24h strings throughout
+---
+
+## Key Business Logic
+- Sessions generated automatically from student recurring schedules — no manual calendar entries needed
+- Attendance stored as overrides (`studentId + date + status`) in `attendanceOverrides` state
+- Payroll: `attendanceBased` → gross = (attended/scheduled) × fee; else → gross = full fee
+- Admin flat fee deducted from gross first, then split by `commissionPct`
+- One-off sessions (CalendarView bookings) stored in `oneOffSessions` App state — not yet in Firestore
+- Clash detection uses `timesOverlap(startA, endA, startB, endB)` from helpers.js
+
+---
+
+## Operational Runbook
+
+### Add a new user account (teacher or admin)
+1. Sign in as **sysadmin** → go to **User Mgmt** in the sidebar
+2. Fill in Full Name, Gmail address, Role, and (if teacher) link a Teacher Profile
+3. Click **Create Account**
+4. Tell the person to open the app and click **Sign in with Google** using that Gmail — they are in immediately, no password needed
+
+> The Teacher Profile (name, instruments, commission %) must already exist in **Payroll → Add Teacher** before you can link it to a user account.
+
+### Add a teacher profile (separate from their user account)
+1. Sign in as **admin** or **sysadmin** → go to **Payroll**
+2. Click **+ Add Teacher** → fill in name, instruments, commission %
+3. Save — the teacher now appears in the payroll breakdown and can be linked to a user account in User Mgmt
+
+### Bootstrap the very first sysadmin (one-time setup)
+No sysadmin exists yet, so you must create the first one manually in Firestore:
+1. Open the app → click **Sign in with Google** → you will see Access Denied (expected)
+2. Firebase Console → **Authentication** → **Users** tab → copy your **UID**
+3. Firebase Console → **Firestore** → `users` collection → **Add document**
+4. Set Document ID = your UID, then add these fields:
+
+| Field | Type | Value |
+|---|---|---|
+| `uid` | string | your UID |
+| `email` | string | your gmail (lowercase) |
+| `displayName` | string | your name |
+| `role` | string | `sysadmin` |
+| `teacherId` | null | — |
+| `createdAt` | timestamp | now |
+
+5. Refresh the app — full sysadmin access granted
+
+### Edit or revoke a user
+- **Edit** (change name, role, linked teacher): User Mgmt → Edit button on their row
+- **Revoke** (immediate lockout): User Mgmt → Revoke button → confirm. Their Firestore doc is deleted; next sign-in attempt shows Access Denied
+
+### User sees "Access Denied" unexpectedly
+Their Firestore `users` doc is missing or was deleted. Options:
+- If legitimate user: go to User Mgmt → Create Account again (they get a new UID → new doc)
+- Or: Firebase Console → Firestore → `users` collection → find/add their doc manually
+
+### Change a user's role
+User Mgmt → Edit → change Role dropdown → Save. Takes effect on their next page load (or immediate if they reload).
+
+### Update Firestore security rules
+1. Edit `firestore.rules` in the project root
+2. Run: `firebase deploy --only firestore:rules`
+3. Rules are live instantly — no app restart needed
+
+### Deploy the app to Firebase Hosting
+```bash
+npm run build
+firebase deploy --only hosting
+```
+The live URL will be shown in the terminal after deploy (e.g. `https://ark-music-portal.web.app`).
+
+### Add a new view/page to the app
+1. Create `src/views/MyView.jsx`
+2. In `App.jsx`: import it, add to `ALL_NAV` array with `{ id, label, icon, roles }`, add to `views` object
+3. Pass `shared` props (includes `T`, `currentUser`, all state)
+
+### Add a new theme color token
+1. Add to both `dark` and `light` objects in `src/utils/tokens.js`
+2. Use as `T.myNewToken` in any component
+
+---
 
 ## Changelog
 - **v1:** Initial build — dashboard, students, attendance, payroll (hours-based), grades
 - **v2:** Commission-based payroll, grade fees per instrument, room management, calendar hub
-- **v3:** Recurring schedules, attendance-based toggle, per-teacher commission %, admin flat fee, multi-instrument teachers, hover attendance picker, light/dark theme, VSCode project structure
-- **v3.1:** Three bug fixes:
-  1. **Light-mode inactive nav/button color not resetting** — `tokens.js` had a typo `muted: "#7070888"` (7 hex digits, invalid CSS) causing the inactive text color to be ignored in light mode; corrected to `"#707088"`. Also changed nav inactive `background` from `"none"` to `"transparent"` for an explicit reset on every theme switch.
-  2. **Hover attendance picker closing before click registers** — `SessionCard` in `CalendarView.jsx` had its `onMouseEnter`/`onMouseLeave` on the inner card div, and the dropdown positioned with `bottom: "calc(100% + 6px)"` creating a 6px gap. Mouse leaving the card across that gap dismissed the dropdown before any button click could land. Fixed by wrapping the card and dropdown together in a single outer container div that owns the mouse events; the dropdown now uses `bottom: "100%"` (no gap), so the combined element is one connected rectangle and the mouse never exits the hover zone when moving into the picker.
-  3. **CLAUDE.md created** — documented project overview, architecture, business logic, theme system, and developer notes for future context.
+- **v3:** Recurring schedules, attendance-based toggle, per-teacher commission %, admin flat fee, multi-instrument teachers, hover attendance picker, light/dark theme
+- **v3.1:** Bug fixes — light mode inactive nav color (token typo `#7070888` → `#707088`), hover attendance picker gap fix (outer wrapper pattern), CLAUDE.md created
+- **v4:** Firebase Auth + RBAC — Google Sign-In, role system (teacher/admin/sysadmin/denied), notification drawer (clash + grade requests), room booking with clash detection, grade request flow, UserManagement view, authSecondary for account creation, Firestore security rules deployed to `ark-music-portal`

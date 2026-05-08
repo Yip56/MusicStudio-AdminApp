@@ -97,15 +97,16 @@ export function Btn({ children, variant = "primary", style = {}, T, ...p }) {
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 export function Modal({ title, onClose, children, T, width = 460 }) {
+  const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const innerStyle = mobile
+    ? { background: T.panel, width: "100%", height: "100%", overflowY: "auto", padding: 20, display: "flex", flexDirection: "column" }
+    : { background: T.panel, border: `1px solid ${T.border2}`, borderRadius: 18, padding: 28, width, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto" };
   return (
     <div style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
-      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200
-    }} onClick={onClose}>
-      <div style={{
-        background: T.panel, border: `1px solid ${T.border2}`, borderRadius: 18,
-        padding: 28, width, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto"
-      }} onClick={e => e.stopPropagation()}>
+      position: "fixed", inset: 0, background: mobile ? "transparent" : "rgba(0,0,0,0.75)",
+      display: "flex", alignItems: mobile ? "flex-start" : "center", justifyContent: "center", zIndex: 200
+    }} onClick={mobile ? undefined : onClose}>
+      <div style={innerStyle} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <span style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{title}</span>
           <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer" }}>✕</button>

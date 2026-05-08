@@ -2,7 +2,7 @@ import { Stat, Card, Avatar, Badge, SectionTitle } from "../components/UI.jsx";
 import { getMergedSessionsForDate } from "../utils/helpers.js";
 import { TODAY, INSTRUMENTS, STATUS_META } from "../data/seed.js";
 
-export default function Dashboard({ students, teachers, rooms, attendanceOverrides, fees, split, T }) {
+export default function Dashboard({ students, teachers, rooms, attendanceOverrides, fees, T, isMobile }) {
   const now = new Date();
   const todaySessions = getMergedSessionsForDate(TODAY, students, attendanceOverrides);
   const present = todaySessions.filter(s => s.status === "present").length;
@@ -16,20 +16,30 @@ export default function Dashboard({ students, teachers, rooms, attendanceOverrid
 
   return (
     <div>
-      <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 3, color: T.text }}>Studio Dashboard</h2>
-      <p style={{ color: T.muted, fontSize: 13, marginBottom: 22 }}>
+      <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, marginBottom: 3, color: T.text }}>Studio Dashboard</h2>
+      <p style={{ color: T.muted, fontSize: 13, marginBottom: 18 }}>
         {now.toLocaleDateString("en-MY", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
       </p>
 
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-        <Stat T={T} label="Students"          value={students.length}  sub="Enrolled" />
-        <Stat T={T} label="Teachers"          value={teachers.length}  sub="Active"    color="#60a5fa" />
-        <Stat T={T} label="Rooms"             value={rooms.length}     sub="Available" color="#a78bfa" />
-        <Stat T={T} label="Today's Classes"   value={`${present}/${todaySessions.length}`} sub="Present" color="#4ade80" />
-        <Stat T={T} label="Monthly Revenue"   value={`RM ${totalGross.toLocaleString()}`} sub="Full fees (all students)" color="#c084fc" />
-      </div>
+      {/* Stats — 2×2 grid on mobile, flex row on desktop */}
+      {isMobile ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <Stat T={T} label="Students"        value={students.length}  sub="Enrolled" />
+          <Stat T={T} label="Teachers"         value={teachers.length}  sub="Active"    color="#60a5fa" />
+          <Stat T={T} label="Today's Classes"  value={`${present}/${todaySessions.length}`} sub="Present" color="#4ade80" />
+          <Stat T={T} label="Monthly Revenue"  value={`RM ${totalGross.toLocaleString()}`}  sub="All students" color="#c084fc" />
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+          <Stat T={T} label="Students"          value={students.length}  sub="Enrolled" />
+          <Stat T={T} label="Teachers"          value={teachers.length}  sub="Active"    color="#60a5fa" />
+          <Stat T={T} label="Rooms"             value={rooms.length}     sub="Available" color="#a78bfa" />
+          <Stat T={T} label="Today's Classes"   value={`${present}/${todaySessions.length}`} sub="Present" color="#4ade80" />
+          <Stat T={T} label="Monthly Revenue"   value={`RM ${totalGross.toLocaleString()}`} sub="Full fees (all students)" color="#c084fc" />
+        </div>
+      )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 14 }}>
         <Card T={T}>
           <SectionTitle T={T}>Students by Instrument</SectionTitle>
           {byInst.map(x => (
