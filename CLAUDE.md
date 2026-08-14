@@ -79,6 +79,18 @@ Auth gate order in App.jsx: **loading spinner → Login → AccessDenied → mai
 | `createdAt` | timestamp | |
 | `createdBy` | string | UID of the sysadmin who created this account |
 
+### `invites/{id}`
+| Field | Type | Notes |
+|---|---|---|
+| `email` | string | Lowercase Gmail — matched against `user.email` on first Google sign-in |
+| `displayName` | string | Pre-filled name shown before the user claims the invite |
+| `role` | string | `teacher`, `admin`, or `sysadmin` |
+| `teacherId` | string \| null | Links to in-memory teacher profile — required for teacher role |
+| `createdAt` | timestamp | |
+| `createdBy` | string | UID of the sysadmin who created the invite |
+
+When the invited person signs in with Google for the first time, `useAuth.js` queries this collection by email, creates `users/{uid}` from the invite data, and deletes the invite doc. Pending invites appear in the User Management table with a "Pending Sign-in" badge.
+
 ### `notifications/{id}`
 | Field | Type | Notes |
 |---|---|---|
@@ -124,11 +136,14 @@ Auth gate order in App.jsx: **loading spinner → Login → AccessDenied → mai
 
 ### Add a new user account (teacher or admin)
 1. Sign in as **sysadmin** → go to **User Mgmt** in the sidebar
-2. Fill in Full Name, Gmail address, Role, and (if teacher) link a Teacher Profile
-3. Click **Create Account**
-4. Tell the person to open the app and click **Sign in with Google** using that Gmail — they are in immediately, no password needed
+2. Select the Role — the form changes accordingly:
+   - **Teacher**: fill in Full Name, Gmail, instruments, commission % — teacher profile is created automatically
+   - **Admin / Sysadmin**: fill in Full Name, Gmail, and optionally link an existing teacher profile
+   - **Student**: fill in student profile fields — no Gmail needed (students don't sign in)
+3. Click **Create Invite**
+4. Tell the person to open the app and click **Sign in with Google** using that Gmail — their account activates automatically on first sign-in
 
-> The Teacher Profile (name, instruments, commission %) must already exist in **Payroll → Add Teacher** before you can link it to a user account.
+> No Firebase Auth account is pre-created. The invite is just a Firestore doc. The user's Google Sign-In creates the actual Auth record when they first sign in.
 
 ### Add a teacher profile (separate from their user account)
 1. Sign in as **admin** or **sysadmin** → go to **Payroll**
@@ -153,9 +168,17 @@ No sysadmin exists yet, so you must create the first one manually in Firestore:
 
 5. Refresh the app — full sysadmin access granted
 
-### Edit or revoke a user
-- **Edit** (change name, role, linked teacher): User Mgmt → Edit button on their row
-- **Revoke** (immediate lockout): User Mgmt → Revoke button → confirm. Their Firestore doc is deleted; next sign-in attempt shows Access Denied
+### Edit or delete a user
+- **Edit** (change name, role, linked teacher): User Mgmt → Edit button on their row. For pending invites, email can also be edited.
+- **Delete Account** (immediate lockout): User Mgmt → Delete button → confirm. Their Firestore `users` doc is deleted; next sign-in attempt shows Access Denied. Their Google account is unaffected.
+- **Cancel Invite** (pending invite): User Mgmt → Delete button on a Pending row → confirm. The invite doc is deleted; they can no longer activate an account with that Gmail.
+
+### Transfer an account (user switching Gmail)
+1. User Mgmt → Transfer button on the user's row
+2. Confirm the transfer modal
+3. The form pre-fills with the old account's info — enter the new Gmail address
+4. Click **Create & Transfer** — a new invite is created for the new Gmail, old account is removed
+5. Tell the user to sign in with their new Gmail — their role and teacher profile carry over automatically
 
 ### User sees "Access Denied" unexpectedly
 Their Firestore `users` doc is missing or was deleted. Options:
@@ -194,3 +217,12 @@ The live URL will be shown in the terminal after deploy (e.g. `https://ark-music
 - **v3:** Recurring schedules, attendance-based toggle, per-teacher commission %, admin flat fee, multi-instrument teachers, hover attendance picker, light/dark theme
 - **v3.1:** Bug fixes — light mode inactive nav color (token typo `#7070888` → `#707088`), hover attendance picker gap fix (outer wrapper pattern), CLAUDE.md created
 - **v4:** Firebase Auth + RBAC — Google Sign-In, role system (teacher/admin/sysadmin/denied), notification drawer (clash + grade requests), room booking with clash detection, grade request flow, UserManagement view, authSecondary for account creation, Firestore security rules deployed to `ark-music-portal`
+- **v5:** User Management overhaul + invite-based auth architecture
+  - **Invite-based account creation** — removed `createUserWithEmailAndPassword` and `authSecondary`. Sysadmin now creates a Firestore `invites` doc (no Firebase Auth account pre-created). When the invited person first signs in with Google, `useAuth.js` finds their invite by email, auto-creates `users/{uid}`, and deletes the invite. Delete account is now just `deleteDoc` — no Cloud Functions or Blaze plan needed.
+  - **Dynamic create form** — Role is the first field and drives the entire form: Teacher (name, Gmail, instruments, commission % — also creates teacher profile inline), Admin/Sysadmin (name, Gmail, optional teacher link), Student (full student profile — no Gmail/Auth needed)
+  - **Transfer Account** — Transfer button on each row pre-fills the create form with the old account's info (name, role, instruments, commission %). Admin enters new Gmail, clicks Create & Transfer — old account is removed automatically. Teacher profile (`teacherId`) is reused, so payroll and student assignments carry over.
+  - **Delete Account / Cancel Invite** — active users show Delete Account, pending invites show Cancel Invite. Both are simple Firestore deletes. Deleted users see AccessDenied on next sign-in; re-inviting the same Gmail works because same Google account = same UID = new Firestore doc.
+  - **Table shows Active + Pending** — users and pending invites appear in the same table with status badges (Active / Pending Sign-in). Edit modal allows email editing on pending invites (not on active users).
+  - **Unsaved changes warning** — global dirty-state system in App.jsx. Navigating away while a form has unsaved input shows a confirmation modal ("Stay and Keep Editing" / "Leave Without Saving"). Browser tab close also triggers the native beforeunload warning. Applied to: UserManagement, Students, Payroll, Rooms, CalendarView.
+  - **Firestore rules** — added `invites` collection (sysadmin write, authenticated read, self-delete on claim). Users collection now allows `create` by the owner (for invite claiming) while keeping `update`/`delete` sysadmin-only.
+  - **`Card` component** — added `forwardRef` support for scroll-to-form on Transfer.

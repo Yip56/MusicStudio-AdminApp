@@ -1,6 +1,3 @@
-// DEVELOPER: Replace all placeholder values with your own from Firebase Console
-// Firebase Console → Project Settings → General → Your apps → Web app → SDK setup
-
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -20,7 +17,3 @@ export const db   = getFirestore(app);
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
-
-// Secondary app instance — used for account creation so sysadmin is not signed out
-const secondaryApp    = initializeApp(firebaseConfig, "secondary");
-export const authSecondary = getAuth(secondaryApp);

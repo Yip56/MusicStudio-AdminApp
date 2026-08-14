@@ -3,7 +3,7 @@ import { Card, Btn, Badge, Modal, Inp, Sel, SectionTitle } from "../components/U
 import { TODAY, INSTRUMENTS, ROOM_COLORS, STATUS_META } from "../data/seed.js";
 import { getMergedSessionsForDate, uid } from "../utils/helpers.js";
 
-export default function RoomsView({ rooms, setRooms, students, teachers, attendanceOverrides, T, isMobile }) {
+export default function RoomsView({ rooms, setRooms, students, teachers, attendanceOverrides, T, isMobile, setDirty }) {
   const [selRoom,  setSelRoom]  = useState(null);
   const [modal,    setModal]    = useState(null);
   const [form,     setForm]     = useState({});
@@ -33,6 +33,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
     if (modal === "add") setRooms(p => [...p, { ...form, id: uid() }]);
     else setRooms(p => p.map(r => r.id === modal.id ? { ...form, id: r.id } : r));
     setModal(null);
+    setDirty?.(false);
   }
   function remove(id) { if (confirm("Remove room?")) { setRooms(p => p.filter(r => r.id !== id)); if (selRoom?.id === id) setSelRoom(null); } }
 
@@ -108,24 +109,24 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
   );
 
   const roomModal = modal && (
-    <Modal T={T} title={modal === "add" ? "Add Room" : "Edit Room"} onClose={() => setModal(null)}>
+    <Modal T={T} title={modal === "add" ? "Add Room" : "Edit Room"} onClose={() => { setModal(null); setDirty?.(false); }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-        <Inp T={T} label="Room Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-        <Sel T={T} label="Room Type" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+        <Inp T={T} label="Room Name" value={form.name} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, name: e.target.value })); }} />
+        <Sel T={T} label="Room Type" value={form.type} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, type: e.target.value })); }}>
           {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
         </Sel>
         <div>
           <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Color</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {ROOM_COLORS.map(c => (
-              <button key={c} onClick={() => setForm(f => ({ ...f, color: c }))}
+              <button key={c} onClick={() => { setDirty?.(true); setForm(f => ({ ...f, color: c })); }}
                 style={{ width: 26, height: 26, borderRadius: 6, background: c, border: "none", cursor: "pointer",
                   outline: form.color === c ? "2px solid white" : "2px solid transparent", outlineOffset: 2 }} />
             ))}
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
-          <Btn T={T} variant="ghost" onClick={() => setModal(null)}>Cancel</Btn>
+          <Btn T={T} variant="ghost" onClick={() => { setModal(null); setDirty?.(false); }}>Cancel</Btn>
           <Btn T={T} onClick={save}>{modal === "add" ? "Add Room" : "Save"}</Btn>
         </div>
       </div>

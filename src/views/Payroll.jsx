@@ -3,7 +3,7 @@ import { Avatar, Badge, Card, Stat, Inp, Sel, Btn, Modal, SectionTitle } from ".
 import { INSTRUMENTS } from "../data/seed.js";
 import { calcStudentPayroll, uid } from "../utils/helpers.js";
 
-export default function Payroll({ students, teachers, setTeachers, fees, adminFlatFee, setAdminFlatFee, attendanceOverrides, T, currentUser, isMobile }) {
+export default function Payroll({ students, teachers, setTeachers, fees, adminFlatFee, setAdminFlatFee, attendanceOverrides, T, currentUser, isMobile, setDirty }) {
   const now = new Date();
   const [selY, setSelY] = useState(now.getFullYear());
   const [selM, setSelM] = useState(now.getMonth());
@@ -44,11 +44,13 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
     if (modal === "add") setTeachers(p => [...p, { ...entry, id: uid() }]);
     else setTeachers(p => p.map(t => t.id === modal.id ? { ...entry, id: t.id } : t));
     setModal(null);
+    setDirty?.(false);
   }
 
   function removeTeacher(id) { if (confirm("Remove teacher?")) setTeachers(p => p.filter(t => t.id !== id)); }
 
   function toggleInstrument(inst) {
+    setDirty?.(true);
     setForm(f => {
       const has = f.instruments.includes(inst);
       return { ...f, instruments: has ? f.instruments.filter(i => i !== inst) : [...f.instruments, inst] };
@@ -56,9 +58,9 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
   }
 
   const teacherModal = modal && isElevated && (
-    <Modal T={T} title={modal === "add" ? "Add Teacher" : "Edit Teacher"} onClose={() => setModal(null)}>
+    <Modal T={T} title={modal === "add" ? "Add Teacher" : "Edit Teacher"} onClose={() => { setModal(null); setDirty?.(false); }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Inp T={T} label="Full Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+        <Inp T={T} label="Full Name" value={form.name} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, name: e.target.value })); }} />
         <div>
           <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Instruments (select all that apply)</div>
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -78,9 +80,9 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
           </div>
         </div>
         <Inp T={T} label="Teacher Commission %" type="number" min={0} max={100}
-          value={form.commissionPct} onChange={e => setForm(f => ({ ...f, commissionPct: e.target.value }))} />
+          value={form.commissionPct} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, commissionPct: e.target.value })); }} />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
-          <Btn T={T} variant="ghost" onClick={() => setModal(null)}>Cancel</Btn>
+          <Btn T={T} variant="ghost" onClick={() => { setModal(null); setDirty?.(false); }}>Cancel</Btn>
           <Btn T={T} onClick={save}>{modal === "add" ? "Add" : "Save Changes"}</Btn>
         </div>
       </div>

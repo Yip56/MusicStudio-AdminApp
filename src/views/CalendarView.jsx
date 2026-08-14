@@ -73,7 +73,7 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, T, currentU
 export default function CalendarView({
   students, teachers, rooms, attendanceOverrides, setAttendanceOverrides,
   oneOffSessions, setOneOffSessions,
-  T, currentUser, sendClashRequest, isMobile,
+  T, currentUser, sendClashRequest, isMobile, setDirty,
 }) {
   const today = new Date();
   const [selDate, setSelDate]   = useState(TODAY);
@@ -165,6 +165,7 @@ export default function CalendarView({
     if (!clash) {
       setOneOffSessions(prev => [...prev, { ...newSession, status: "pending" }]);
       setBookSuccess(true);
+      setDirty?.(false);
     } else {
       const clashTeacher = teachers.find(t => t.id === clash.teacherId);
       setClashWarning({ newSession, clash, clashTeacher });
@@ -188,6 +189,7 @@ export default function CalendarView({
     });
     setClashWarning(null);
     setBookSuccess(true);
+    setDirty?.(false);
   }
 
   const MonthGrid = (
@@ -283,12 +285,12 @@ export default function CalendarView({
   const bookingModals = (
     <>
       {bookModal && !clashWarning && (
-        <Modal T={T} title="Book Session" onClose={() => { setBookModal(null); setBookSuccess(false); }} width={400}>
+        <Modal T={T} title="Book Session" onClose={() => { setBookModal(null); setBookSuccess(false); setDirty?.(false); }} width={400}>
           {bookSuccess ? (
             <div style={{ textAlign: "center", padding: "10px 0" }}>
               <div style={{ fontSize: 28, marginBottom: 12 }}>✅</div>
               <div style={{ fontSize: 14, color: T.text, fontWeight: 600, marginBottom: 8 }}>Session booked!</div>
-              <Btn T={T} onClick={() => { setBookModal(null); setBookSuccess(false); }}>Done</Btn>
+              <Btn T={T} onClick={() => { setBookModal(null); setBookSuccess(false); setDirty?.(false); }}>Done</Btn>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -296,27 +298,27 @@ export default function CalendarView({
                 Date: <strong style={{ color: T.text }}>{fmtDate(selDate)}</strong>
               </div>
               <Sel T={T} label="Teacher" value={bookForm.teacherId ?? ""}
-                onChange={e => setBookForm(f => ({ ...f, teacherId: e.target.value }))}>
+                onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, teacherId: e.target.value })); }}>
                 <option value="">— Select teacher —</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </Sel>
               <Sel T={T} label="Student" value={bookForm.studentId}
-                onChange={e => setBookForm(f => ({ ...f, studentId: e.target.value }))}>
+                onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, studentId: e.target.value })); }}>
                 {bookableStudents.length === 0 && <option value="">No students</option>}
                 {bookableStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </Sel>
               <div style={{ display: "flex", gap: 11 }}>
                 <Sel T={T} label="Start Time" value={bookForm.startTime}
-                  onChange={e => setBookForm(f => ({ ...f, startTime: e.target.value }))}>
+                  onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, startTime: e.target.value })); }}>
                   {HOURS.map(h => <option key={h}>{h}</option>)}
                 </Sel>
                 <Sel T={T} label="End Time" value={bookForm.endTime}
-                  onChange={e => setBookForm(f => ({ ...f, endTime: e.target.value }))}>
+                  onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, endTime: e.target.value })); }}>
                   {HOURS.map(h => <option key={h}>{h}</option>)}
                 </Sel>
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
-                <Btn T={T} variant="ghost" onClick={() => setBookModal(null)}>Cancel</Btn>
+                <Btn T={T} variant="ghost" onClick={() => { setBookModal(null); setDirty?.(false); }}>Cancel</Btn>
                 <Btn T={T} onClick={checkAndBook}>Check & Book</Btn>
               </div>
             </div>

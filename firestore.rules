@@ -1,18 +1,36 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSysadmin() {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "sysadmin";
     }
-    function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+
+    function isAdminOrAbove() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["admin", "sysadmin"];
     }
+
+    // Active user accounts — doc ID is their Firebase Auth UID
     match /users/{uid} {
-      allow read: if isOwner(uid) || isSysadmin();
-      allow write: if isSysadmin();
+      allow read:   if request.auth != null && (request.auth.uid == uid || isAdminOrAbove());
+      allow create: if request.auth != null && request.auth.uid == uid; // invite claim on first sign-in
+      allow update: if isSysadmin();
+      allow delete: if isSysadmin();
     }
+
+    // Pending invites — created by sysadmin, claimed by the invited user on first sign-in
+    match /invites/{inviteId} {
+      allow read:   if request.auth != null;
+      allow create: if isSysadmin();
+      allow update: if isSysadmin();
+      allow delete: if isSysadmin()
+        || (request.auth != null && resource.data.email == request.auth.token.email);
+    }
+
     match /notifications/{notifId} {
       allow read:   if request.auth != null;
       allow create: if request.auth != null;

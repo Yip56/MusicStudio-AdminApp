@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { useTheme } from "./hooks/useTheme.js";
@@ -19,7 +19,7 @@ import RoomsView      from "./views/RoomsView.jsx";
 import UserManagement from "./views/UserManagement.jsx";
 import Login          from "./views/Login.jsx";
 import AccessDenied   from "./views/AccessDenied.jsx";
-import { Avatar, Badge } from "./components/UI.jsx";
+import { Avatar, Badge, Modal, Btn } from "./components/UI.jsx";
 
 const ALL_NAV = [
   { id: "dashboard", label: "Dashboard",     icon: "◈", roles: ["admin", "sysadmin"] },
@@ -43,6 +43,8 @@ export default function App() {
   const [view,           setView]           = useState(null);
   const [notifOpen,      setNotifOpen]      = useState(false);
   const [moreOpen,       setMoreOpen]       = useState(false);
+  const [dirty,          setDirty]          = useState(false);
+  const [pendingNav,     setPendingNav]     = useState(null);
   const [students,       setStudents]       = useState(SEED_STUDENTS);
   const [teachers,       setTeachers]       = useState(SEED_TEACHERS);
   const [rooms,          setRooms]          = useState(SEED_ROOMS);
@@ -50,6 +52,18 @@ export default function App() {
   const [attendanceOverrides, setAttendanceOverrides] = useState(SEED_ATTENDANCE);
   const [adminFlatFee,   setAdminFlatFee]   = useState(5);
   const [oneOffSessions, setOneOffSessions] = useState([]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const h = e => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
+
+  function navigateTo(id) {
+    if (dirty) { setPendingNav(id); return; }
+    setView(id);
+  }
 
   // ── Auth gates ──────────────────────────────────────────────────────────────
   if (loading) return (
@@ -125,6 +139,7 @@ export default function App() {
     T,
     currentUser,
     isMobile,
+    setDirty,
   };
 
   const views = {
@@ -264,7 +279,7 @@ export default function App() {
           {mobileNavItems.map(n => {
             const active = effectiveView === n.id;
             return (
-              <button key={n.id} onClick={() => { setView(n.id); setMoreOpen(false); }}
+              <button key={n.id} onClick={() => { navigateTo(n.id); setMoreOpen(false); }}
                 style={{
                   flex: 1, padding: "8px 4px", border: "none",
                   background: active ? T.accent + "15" : "transparent",
@@ -304,7 +319,7 @@ export default function App() {
               {moreNavItems.map(n => {
                 const active = effectiveView === n.id;
                 return (
-                  <button key={n.id} onClick={() => { setView(n.id); setMoreOpen(false); }}
+                  <button key={n.id} onClick={() => { navigateTo(n.id); setMoreOpen(false); }}
                     style={{
                       display: "flex", alignItems: "center", gap: 13, width: "100%",
                       padding: "14px 20px", border: "none",
@@ -325,6 +340,20 @@ export default function App() {
               </div>
             </div>
           </>
+        )}
+
+        {pendingNav !== null && (
+          <Modal T={T} title="Unsaved Changes" onClose={() => setPendingNav(null)}>
+            <p style={{ fontSize: 14, color: T.text, lineHeight: 1.7, marginBottom: 20 }}>
+              You have unsaved changes that will be lost if you navigate away. Are you sure you want to leave?
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+              <Btn T={T} variant="ghost" onClick={() => setPendingNav(null)}>Stay and Keep Editing</Btn>
+              <Btn T={T} variant="danger" onClick={() => { setView(pendingNav); setPendingNav(null); setDirty(false); setMoreOpen(false); }}>
+                Leave Without Saving
+              </Btn>
+            </div>
+          </Modal>
         )}
 
         {/* Notification drawer — full screen on mobile */}
@@ -370,7 +399,7 @@ export default function App() {
           {nav.map(n => {
             const active = effectiveView === n.id;
             return (
-              <button key={n.id} onClick={() => setView(n.id)} style={{
+              <button key={n.id} onClick={() => navigateTo(n.id)} style={{
                 display: "flex", alignItems: "center", gap: 9, width: "100%",
                 padding: "9px 18px", border: "none",
                 background: active ? (theme === "dark" ? "#1a1a28" : "#f0f0fa") : "transparent",
@@ -450,6 +479,20 @@ export default function App() {
       <main style={{ flex: 1, padding: 28, overflowY: "auto", maxHeight: "100vh" }}>
         {views[effectiveView]}
       </main>
+
+      {pendingNav !== null && (
+        <Modal T={T} title="Unsaved Changes" onClose={() => setPendingNav(null)}>
+          <p style={{ fontSize: 14, color: T.text, lineHeight: 1.7, marginBottom: 20 }}>
+            You have unsaved changes that will be lost if you navigate away. Are you sure you want to leave?
+          </p>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+            <Btn T={T} variant="ghost" onClick={() => setPendingNav(null)}>Stay and Keep Editing</Btn>
+            <Btn T={T} variant="danger" onClick={() => { setView(pendingNav); setPendingNav(null); setDirty(false); }}>
+              Leave Without Saving
+            </Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

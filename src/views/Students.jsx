@@ -9,7 +9,7 @@ const BLANK = {
   schedule: { dayOfWeek: 6, startTime: "09:00", endTime: "10:00", roomId: "" }
 };
 
-export default function Students({ students, setStudents, teachers, rooms, T, currentUser, sendGradeRequest, isMobile }) {
+export default function Students({ students, setStudents, teachers, rooms, T, currentUser, sendGradeRequest, isMobile, setDirty }) {
   const [search,       setSearch]       = useState("");
   const [modal,        setModal]        = useState(null);
   const [form,         setForm]         = useState(BLANK);
@@ -42,11 +42,12 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
     if (modal === "add") setStudents(p => [...p, { ...entry, id: uid() }]);
     else setStudents(p => p.map(s => s.id === modal.id ? { ...entry, id: s.id } : s));
     setModal(null);
+    setDirty?.(false);
   }
 
   function remove(id) { if (confirm("Remove this student?")) setStudents(p => p.filter(s => s.id !== id)); }
 
-  function setSched(key, val) { setForm(f => ({ ...f, schedule: { ...f.schedule, [key]: val } })); }
+  function setSched(key, val) { setDirty?.(true); setForm(f => ({ ...f, schedule: { ...f.schedule, [key]: val } })); }
 
   function openGradeRequest(student) {
     setGradeForm({ requestedGrade: student.grade, reason: "" });
@@ -67,18 +68,18 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
   }
 
   const studentModal = modal && isElevated && (
-    <Modal T={T} title={modal === "add" ? "Add Student" : "Edit Student"} onClose={() => setModal(null)} width={500}>
+    <Modal T={T} title={modal === "add" ? "Add Student" : "Edit Student"} onClose={() => { setModal(null); setDirty?.(false); }} width={500}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Inp T={T} label="Full Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+        <Inp T={T} label="Full Name" value={form.name} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, name: e.target.value })); }} />
         <div style={{ display: "flex", gap: 11 }}>
-          <Sel T={T} label="Instrument" value={form.instrument} onChange={e => setForm(f => ({ ...f, instrument: e.target.value }))}>
+          <Sel T={T} label="Instrument" value={form.instrument} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, instrument: e.target.value })); }}>
             {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
           </Sel>
-          <Sel T={T} label="Grade" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))}>
+          <Sel T={T} label="Grade" value={form.grade} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, grade: e.target.value })); }}>
             {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
           </Sel>
         </div>
-        <Sel T={T} label="Teacher" value={form.teacherId} onChange={e => setForm(f => ({ ...f, teacherId: e.target.value }))}>
+        <Sel T={T} label="Teacher" value={form.teacherId} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, teacherId: e.target.value })); }}>
           <option value="">— Select teacher —</option>
           {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.instruments.join(", ")})</option>)}
         </Sel>
@@ -106,10 +107,10 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
         <Checkbox T={T}
           label="Attendance-based commission (fee prorated by classes attended)"
           checked={form.attendanceBased}
-          onChange={() => setForm(f => ({ ...f, attendanceBased: !f.attendanceBased }))}
+          onChange={() => { setDirty?.(true); setForm(f => ({ ...f, attendanceBased: !f.attendanceBased })); }}
         />
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
-          <Btn T={T} variant="ghost" onClick={() => setModal(null)}>Cancel</Btn>
+          <Btn T={T} variant="ghost" onClick={() => { setModal(null); setDirty?.(false); }}>Cancel</Btn>
           <Btn T={T} onClick={save}>{modal === "add" ? "Add Student" : "Save Changes"}</Btn>
         </div>
       </div>

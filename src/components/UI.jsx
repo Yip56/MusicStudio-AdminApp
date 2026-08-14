@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 export function Avatar({ name, size = 34 }) {
@@ -26,14 +26,14 @@ export function Badge({ label, color = "#aaa", bg = "#1a1a2a" }) {
 }
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
-export function Card({ children, style = {}, T }) {
+export const Card = forwardRef(function Card({ children, style = {}, T }, ref) {
   return (
-    <div style={{
+    <div ref={ref} style={{
       background: T.panel, border: `1px solid ${T.border}`,
       borderRadius: 14, padding: 20, ...style
     }}>{children}</div>
   );
-}
+});
 
 // ─── Stat ─────────────────────────────────────────────────────────────────────
 export function Stat({ label, value, sub, color, T }) {

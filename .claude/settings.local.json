@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node -e \"require\\('./node_modules/firebase/package.json'\\); console.log\\('firebase:', require\\('./node_modules/firebase/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\('SDK:', require\\('./node_modules/firebase/package.json'\\).version\\)\")",
+      "Bash(firebase --version)",
+      "Bash(firebase deploy *)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase init *)",
+      "PowerShell(New-Item *)",
+      "Bash(node -e \"require\\('./node_modules/firebase/functions'\\)\")"
+    ]
+  }
+}
