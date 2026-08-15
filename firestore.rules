@@ -37,5 +37,18 @@ service cloud.firestore {
       allow update: if request.auth != null;
       allow delete: if isSysadmin();
     }
+
+    // Payroll month snapshots — fee collection + payout status per month
+    match /payroll_months/{yearMonth} {
+      allow read:   if request.auth != null;
+      allow write:  if isAdminOrAbove();
+    }
+
+    // Makeup class scheduling — teachers and admins can create/delete
+    match /class_deferrals/{deferralId} {
+      allow read:   if request.auth != null;
+      allow create: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
   }
 }

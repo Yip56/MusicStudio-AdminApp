@@ -16,7 +16,7 @@ export default function GradesAndFees({ students, setStudents, fees, setFees, T,
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h2 style={{ fontSize: isMobile ? 18 : 22, fontWeight: 800, color: T.text }}>Grades & Fees</h2>
+        <h2 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Grades & Fees</h2>
         <div style={{ display: "flex", gap: 7 }}>
           <Btn T={T} variant={tab === "grades" ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setTab("grades")}>Grades</Btn>
           <Btn T={T} variant={tab === "fees"   ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setTab("fees")}>Fees</Btn>
@@ -52,25 +52,28 @@ export default function GradesAndFees({ students, setStudents, fees, setFees, T,
           </div>
         ) : (
           /* Desktop: table */
-          <Card T={T} style={{ padding: 0, overflow: "hidden" }}>
+          <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <THead T={T} cols={["Student", "Instrument", "Current Grade", "Change Grade"]} />
               <tbody>
-                {students.map((s, i) => (
-                  <tr key={s.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 ? T.rowAlt : "transparent" }}>
+                {students.map((s) => (
+                  <tr key={s.id}
+                    onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    style={{ borderBottom: `0.6px solid ${T.border}` }}>
                     <td style={{ padding: "11px 14px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                         <Avatar name={s.name} size={30} />
-                        <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{s.name}</span>
+                        <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{s.name}</span>
                       </div>
                     </td>
-                    <td style={{ padding: "11px 14px", fontSize: 13, color: T.textSub }}>{s.instrument}</td>
+                    <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{s.instrument}</td>
                     <td style={{ padding: "11px 14px" }}>
                       <Badge label={s.grade} color={T.accent} bg={T.accent + "18"} />
                     </td>
                     <td style={{ padding: "11px 14px" }}>
                       <select value={s.grade} onChange={e => setGrade(s.id, e.target.value)}
-                        style={{ background: T.input, border: `1px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "5px 9px", fontSize: 12, outline: "none", fontFamily: "inherit", appearance: "none" }}>
+                        style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "5px 9px", fontSize: 12, outline: "none", fontFamily: "inherit", appearance: "none" }}>
                         {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
                       </select>
                     </td>
@@ -95,7 +98,7 @@ export default function GradesAndFees({ students, setStudents, fees, setFees, T,
             <SectionTitle T={T}>Monthly Fees — {feeInst}</SectionTitle>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(190px, 1fr))", gap: 9 }}>
               {GRADE_LABELS.map(g => (
-                <div key={g} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 9, padding: "11px 13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div key={g} style={{ background: T.bg, border: `0.6px solid ${T.border2}`, borderRadius: 9, padding: "11px 13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{g}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <span style={{ fontSize: 11, color: T.muted }}>RM</span>

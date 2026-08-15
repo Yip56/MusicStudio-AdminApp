@@ -12,7 +12,10 @@
       "Bash(firebase projects:list)",
       "Bash(firebase init *)",
       "PowerShell(New-Item *)",
-      "Bash(node -e \"require\\('./node_modules/firebase/functions'\\)\")"
+      "Bash(node -e \"require\\('./node_modules/firebase/functions'\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(npx vite *)",
+      "Bash(Test-Path *)"
     ]
   }
 }

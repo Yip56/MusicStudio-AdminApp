@@ -6,7 +6,7 @@ import App from "./App.jsx";
 const style = document.createElement("style");
 style.textContent = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'DM Sans', 'Segoe UI', sans-serif; }
+  body { font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #2e2e3a; border-radius: 3px; }

@@ -38,8 +38,8 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
   function remove(id) { if (confirm("Remove room?")) { setRooms(p => p.filter(r => r.id !== id)); if (selRoom?.id === id) setSelRoom(null); } }
 
   const roomDetailPanel = selRoom && (
-    <Card T={T} style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
+      <div style={{ padding: "14px 16px", borderBottom: `0.6px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <div style={{ width: 12, height: 12, borderRadius: 3, background: selRoom.color }} />
           <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{selRoom.name}</span>
@@ -65,7 +65,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
             return (
               <div key={sess.id} style={{
                 display: "flex", alignItems: "center", gap: 14, padding: "12px 16px",
-                borderBottom: i < roomSessions.length - 1 ? `1px solid ${T.border}` : "none"
+                borderBottom: i < roomSessions.length - 1 ? `0.6px solid ${T.border}` : "none"
               }}>
                 <div style={{ minWidth: 90, textAlign: "center", background: selRoom.color + "15",
                   border: `1px solid ${selRoom.color}30`, borderRadius: 8, padding: "6px 8px" }}>
@@ -86,7 +86,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
         </div>
       )}
 
-      <div style={{ padding: "12px 16px", borderTop: `1px solid ${T.border}` }}>
+      <div style={{ padding: "12px 16px", borderTop: `0.6px solid ${T.border}` }}>
         <SectionTitle T={T}>Timeline (8:00 – 20:00)</SectionTitle>
         <div style={{ position: "relative", height: 28, background: T.bg, borderRadius: 6, overflow: "hidden" }}>
           {roomSessions.map(sess => {
@@ -138,7 +138,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
     return (
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Rooms</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Rooms</h2>
           <Btn T={T} onClick={openAdd} style={{ padding: "7px 14px", fontSize: 12 }}>+ Add</Btn>
         </div>
 
@@ -209,7 +209,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: T.text }}>Rooms</h2>
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Rooms</h2>
         <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
           {["all","free","occupied"].map(f => (
             <Btn key={f} T={T} variant={filter === f ? "active" : "ghost"}
@@ -218,7 +218,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </Btn>
           ))}
-          <Btn T={T} onClick={openAdd} style={{ marginLeft: 6 }}>+ Add Room</Btn>
+          <Btn T={T} onClick={openAdd} style={{ marginLeft: 6, background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>+ Add Room</Btn>
         </div>
       </div>
 

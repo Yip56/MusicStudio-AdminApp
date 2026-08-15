@@ -5,6 +5,7 @@ import { useTheme } from "./hooks/useTheme.js";
 import { useAuth } from "./hooks/useAuth.js";
 import { useNotifications } from "./hooks/useNotifications.js";
 import { useMobile } from "./hooks/useMobile.js";
+import { useClassDeferrals } from "./hooks/useClassDeferrals.js";
 import { getTokens } from "./utils/tokens.js";
 import {
   SEED_STUDENTS, SEED_TEACHERS, SEED_ROOMS, SEED_FEES, SEED_ATTENDANCE
@@ -14,6 +15,7 @@ import Dashboard      from "./views/Dashboard.jsx";
 import Students       from "./views/Students.jsx";
 import CalendarView   from "./views/CalendarView.jsx";
 import Payroll        from "./views/Payroll.jsx";
+import PayoutPreview  from "./views/PayoutPreview.jsx";
 import GradesAndFees  from "./views/GradesAndFees.jsx";
 import RoomsView      from "./views/RoomsView.jsx";
 import UserManagement from "./views/UserManagement.jsx";
@@ -40,11 +42,12 @@ export default function App() {
   const { notifications, pendingCount, resolveNotification } = useNotifications(firestoreUser);
   const isMobile = useMobile();
 
-  const [view,           setView]           = useState(null);
-  const [notifOpen,      setNotifOpen]      = useState(false);
-  const [moreOpen,       setMoreOpen]       = useState(false);
-  const [dirty,          setDirty]          = useState(false);
-  const [pendingNav,     setPendingNav]     = useState(null);
+  const [view,              setView]              = useState(null);
+  const [notifOpen,         setNotifOpen]         = useState(false);
+  const [moreOpen,          setMoreOpen]          = useState(false);
+  const [dirty,             setDirty]             = useState(false);
+  const [pendingNav,        setPendingNav]        = useState(null);
+  const [payoutPreviewCtx,  setPayoutPreviewCtx]  = useState(null);
   const [students,       setStudents]       = useState(SEED_STUDENTS);
   const [teachers,       setTeachers]       = useState(SEED_TEACHERS);
   const [rooms,          setRooms]          = useState(SEED_ROOMS);
@@ -52,6 +55,7 @@ export default function App() {
   const [attendanceOverrides, setAttendanceOverrides] = useState(SEED_ATTENDANCE);
   const [adminFlatFee,   setAdminFlatFee]   = useState(5);
   const [oneOffSessions, setOneOffSessions] = useState([]);
+  const { deferrals, addDeferral, removeDeferral } = useClassDeferrals();
 
   useEffect(() => {
     if (!dirty) return;
@@ -67,9 +71,9 @@ export default function App() {
 
   // ── Auth gates ──────────────────────────────────────────────────────────────
   if (loading) return (
-    <div style={{ minHeight: "100vh", background: "#0b0b0f", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", background: "#081028", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{`@keyframes _spin { to { transform: rotate(360deg); } }`}</style>
-      <div style={{ width: 40, height: 40, border: "3px solid #1e1e2a", borderTop: "3px solid #e8b84b", borderRadius: "50%", animation: "_spin 0.8s linear infinite" }} />
+      <div style={{ width: 40, height: 40, border: "3px solid #212C4D", borderTop: "3px solid #CB3CFF", borderRadius: "50%", animation: "_spin 0.8s linear infinite" }} />
     </div>
   );
 
@@ -78,7 +82,7 @@ export default function App() {
 
   // ── Derived state ────────────────────────────────────────────────────────────
   const nav          = ALL_NAV.filter(n => n.roles.includes(role));
-  const effectiveView = (view && nav.some(n => n.id === view)) ? view : nav[0]?.id;
+  const effectiveView = (view && (nav.some(n => n.id === view) || view === "payout_preview")) ? view : nav[0]?.id;
 
   const currentUser = {
     uid:         user.uid,
@@ -136,20 +140,35 @@ export default function App() {
     attendanceOverrides, setAttendanceOverrides,
     adminFlatFee, setAdminFlatFee,
     oneOffSessions, setOneOffSessions,
+    deferrals, addDeferral, removeDeferral,
     T,
     currentUser,
     isMobile,
     setDirty,
   };
 
+  function openPayoutPreview(teacher, year, month) {
+    setPayoutPreviewCtx({ teacher, year, month });
+    setView("payout_preview");
+  }
+
   const views = {
-    dashboard: <Dashboard    {...shared} />,
-    calendar:  <CalendarView {...shared} sendClashRequest={sendClashRequest} />,
-    students:  <Students     {...shared} sendGradeRequest={sendGradeRequest} />,
-    payroll:   <Payroll      {...shared} />,
-    grades:    <GradesAndFees {...shared} />,
-    rooms:     <RoomsView    {...shared} />,
-    users:     <UserManagement {...shared} />,
+    dashboard:      <Dashboard    {...shared} />,
+    calendar:       <CalendarView {...shared} sendClashRequest={sendClashRequest} />,
+    students:       <Students     {...shared} sendGradeRequest={sendGradeRequest} />,
+    payroll:        <Payroll      {...shared} openPayoutPreview={openPayoutPreview} />,
+    grades:         <GradesAndFees {...shared} />,
+    rooms:          <RoomsView    {...shared} />,
+    users:          <UserManagement {...shared} />,
+    payout_preview: payoutPreviewCtx
+      ? <PayoutPreview
+          {...shared}
+          teacher={payoutPreviewCtx.teacher}
+          year={payoutPreviewCtx.year}
+          month={payoutPreviewCtx.month}
+          onBack={() => { setPayoutPreviewCtx(null); setView("payroll"); }}
+        />
+      : null,
   };
 
   const ROLE_COLOR = {
@@ -227,7 +246,7 @@ export default function App() {
     const showMoreBtn    = moreNavItems.length > 0;
 
     return (
-      <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'DM Sans', 'Segoe UI', sans-serif" }}>
+      <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Plus Jakarta Sans', 'Segoe UI', sans-serif" }}>
 
         {/* Top strip */}
         <div style={{
@@ -376,85 +395,104 @@ export default function App() {
   return (
     <div style={{
       minHeight: "100vh", background: T.bg, color: T.text,
-      fontFamily: "'DM Sans', 'Segoe UI', sans-serif", display: "flex"
+      fontFamily: "'Plus Jakarta Sans', 'Segoe UI', sans-serif", display: "flex"
     }}>
       {/* Sidebar */}
       <aside style={{
-        width: 210, background: T.sidebar, borderRight: `1px solid ${T.border}`,
-        display: "flex", flexDirection: "column", padding: "22px 0", flexShrink: 0,
+        width: 260, background: T.sidebar, borderRight: `0.6px solid ${T.border2}`,
+        boxShadow: "0px 8px 28px 0px rgba(1,5,17,0.3)",
+        display: "flex", flexDirection: "column", flexShrink: 0,
         position: "sticky", top: 0, height: "100vh"
       }}>
-        <div style={{ padding: "0 18px 24px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 34, height: 34, background: T.accent, borderRadius: 10,
-              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, color: "#0b0b0f" }}>♬</div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: T.text, lineHeight: 1.1 }}>StudioOS</div>
-              <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>Admin Panel</div>
-            </div>
+        {/* Logo */}
+        <div style={{ padding: "32px 28px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{
+              width: 26, height: 26, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 18, color: "#CB3CFF"
+            }}>♬</div>
+            <span style={{ fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif", fontSize: 20, fontWeight: 600, color: T.text }}>StudioOS</span>
           </div>
         </div>
 
-        <nav style={{ flex: 1 }}>
+        {/* Decorative search bar */}
+        <div style={{ margin: "0 28px 24px", position: "relative" }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: T.muted, pointerEvents: "none" }}>🔍</span>
+          <input
+            readOnly
+            placeholder="Search for..."
+            style={{
+              width: "100%", background: T.input, border: `0.6px solid ${T.border2}`,
+              borderRadius: 4, color: T.muted, padding: "9px 14px 9px 30px",
+              fontSize: 12, outline: "none", fontFamily: "inherit", cursor: "default"
+            }}
+          />
+        </div>
+
+        <nav style={{ flex: 1, padding: "0 8px" }}>
           {nav.map(n => {
             const active = effectiveView === n.id;
             return (
               <button key={n.id} onClick={() => navigateTo(n.id)} style={{
-                display: "flex", alignItems: "center", gap: 9, width: "100%",
-                padding: "9px 18px", border: "none",
-                background: active ? (theme === "dark" ? "#1a1a28" : "#f0f0fa") : "transparent",
+                display: "flex", alignItems: "center", width: "100%",
+                height: 42, padding: "0 0 0 14px", border: "none",
+                borderLeft: active ? "2px solid #CB3CFF" : "2px solid transparent",
+                background: "transparent",
                 cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                color: active ? T.accent : T.muted, fontWeight: active ? 700 : 400, fontSize: 13,
-                borderRight: active ? `2px solid ${T.accent}` : "2px solid transparent",
-                transition: "color 0.12s, background 0.12s"
+                color: active ? "#CB3CFF" : T.muted, fontWeight: 500, fontSize: 14,
+                borderRadius: 7, transition: "color 0.12s"
               }}>
-                <span style={{ fontSize: 15, width: 18, textAlign: "center" }}>{n.icon}</span>
+                <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{n.icon}</span>
                 {n.label}
               </button>
             );
           })}
         </nav>
 
-        <div style={{ padding: "14px 18px", borderTop: `1px solid ${T.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <div style={{ borderTop: `0.6px solid ${T.border2}`, margin: "0 8px" }} />
+
+        {/* Footer user area */}
+        <div style={{ padding: "16px 28px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <div style={{ flexShrink: 0 }}>
               {currentUser.photoURL
-                ? <img src={currentUser.photoURL} alt="" style={{ width: 28, height: 28, borderRadius: "50%", display: "block" }} />
-                : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={28} />
+                ? <img src={currentUser.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", display: "block" }} />
+                : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={32} />
               }
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {currentUser.displayName || currentUser.email}
               </div>
-              <Badge label={role} color={rc.color} bg={rc.bg} />
+              <div style={{ fontSize: 12, color: T.muted }}>{role}</div>
             </div>
             <button onClick={() => setNotifOpen(o => !o)} title="Notifications"
-              style={{ background: "none", border: "none", cursor: "pointer", position: "relative", padding: 4, flexShrink: 0 }}>
-              <span style={{ fontSize: 16 }}>🔔</span>
+              style={{ background: "none", border: "none", cursor: "pointer", position: "relative", padding: 4, flexShrink: 0, color: T.muted, fontSize: 16 }}>
+              🔔
               {pendingCount > 0 && (
                 <span style={{
                   position: "absolute", top: 0, right: 0, minWidth: 16, height: 16,
-                  background: "#ef4444", borderRadius: 99, fontSize: 9, fontWeight: 700,
+                  background: "#FF5A65", borderRadius: 99, fontSize: 9, fontWeight: 700,
                   color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px"
                 }}>{pendingCount}</span>
               )}
             </button>
+            <span style={{ fontSize: 18, color: T.muted, flexShrink: 0 }}>›</span>
           </div>
 
           <button onClick={toggle} style={{
             display: "flex", alignItems: "center", gap: 8, width: "100%",
-            background: T.dim, border: "none", borderRadius: 8, padding: "7px 11px",
-            cursor: "pointer", fontFamily: "inherit", marginBottom: 8, color: T.text, fontSize: 12, fontWeight: 600
+            background: T.panel2, border: "none", borderRadius: 4, padding: "8px 12px",
+            cursor: "pointer", fontFamily: "inherit", marginBottom: 8, color: T.text, fontSize: 12, fontWeight: 500
           }}>
-            <span style={{ fontSize: 15 }}>{theme === "dark" ? "☀️" : "🌙"}</span>
+            <span style={{ fontSize: 14 }}>{theme === "dark" ? "☀️" : "🌙"}</span>
             {theme === "dark" ? "Light Mode" : "Dark Mode"}
           </button>
 
           <button onClick={signOut} style={{
             display: "flex", alignItems: "center", gap: 8, width: "100%",
-            background: "none", border: `1px solid ${T.border2}`, borderRadius: 8, padding: "7px 11px",
-            cursor: "pointer", fontFamily: "inherit", color: T.muted, fontSize: 12, fontWeight: 600
+            background: "none", border: `0.6px solid ${T.border2}`, borderRadius: 4, padding: "8px 12px",
+            cursor: "pointer", fontFamily: "inherit", color: T.muted, fontSize: 12, fontWeight: 500
           }}>
             ↩ Sign Out
           </button>
@@ -467,7 +505,8 @@ export default function App() {
           <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 299 }} />
           <div style={{
             position: "fixed", top: 0, right: 0, width: 340, height: "100vh",
-            background: T.panel, borderLeft: `1px solid ${T.border2}`,
+            background: T.panel, borderLeft: `0.6px solid ${T.border2}`,
+            boxShadow: "0px 17px 17px 0px rgba(1,5,17,0.1)",
             zIndex: 300, display: "flex", flexDirection: "column"
           }}>
             {notifDrawerContent}

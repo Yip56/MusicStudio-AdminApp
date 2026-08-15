@@ -4,9 +4,14 @@ import { getMergedSessionsForDate, getRecurringDates, fmtDate, uid, timesOverlap
 import { TODAY, STATUS_META, HOURS } from "../data/seed.js";
 
 // ─── Session Card with hover/tap attendance ───────────────────────────────────
-function SessionCard({ sess, student, teacher, room, onStatusChange, T, currentUser, isMobile }) {
-  const [hovered,  setHovered]  = useState(false);
+function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleMakeup, T, currentUser, isMobile }) {
+  const [hovered,    setHovered]    = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [showMakeupForm, setShowMakeupForm] = useState(false);
+  const [makeupYear,  setMakeupYear]  = useState(new Date().getFullYear());
+  const [makeupMonth, setMakeupMonth] = useState(new Date().getMonth() + 1);
+  const [makeupDay,   setMakeupDay]   = useState(new Date().getDate());
+
   const sm = STATUS_META[sess.status] ?? { color: T.muted, bg: T.dim, label: "—" };
   const roomColor = room?.color ?? "#888";
 
@@ -31,19 +36,80 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, T, currentU
         <div style={{
           position: "absolute", bottom: "100%", left: 0, zIndex: 50,
           background: T.panel, border: `1px solid ${T.border2}`, borderRadius: 10,
-          padding: "6px", display: "flex", gap: 6, boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-          whiteSpace: "nowrap", flexWrap: isMobile ? "wrap" : "nowrap"
+          padding: "6px", display: "flex", flexDirection: "column", gap: 6,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+          whiteSpace: "nowrap",
         }}>
-          {Object.entries(STATUS_META).filter(([k]) => k !== "pending_approval").map(([key, meta]) => (
-            <button key={key} onClick={e => { e.stopPropagation(); onStatusChange(sess, key); setPickerOpen(false); }}
-              style={{
-                padding: "5px 11px", borderRadius: 7, border: "none", cursor: "pointer",
-                fontFamily: "inherit", fontSize: 11, fontWeight: 700,
-                background: sess.status === key ? meta.bg : T.dim,
-                color: sess.status === key ? meta.color : T.muted,
-                outline: sess.status === key ? `1px solid ${meta.color}` : "none",
-              }}>{meta.label}</button>
-          ))}
+          <div style={{ display: "flex", gap: 6, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+            {Object.entries(STATUS_META).filter(([k]) => k !== "pending_approval").map(([key, meta]) => (
+              <button key={key}
+                onClick={e => {
+                  e.stopPropagation();
+                  onStatusChange(sess, key);
+                  if (key === "absent" && !student?.attendanceBased) {
+                    setShowMakeupForm(true);
+                  } else {
+                    setShowMakeupForm(false);
+                    setPickerOpen(false);
+                  }
+                }}
+                style={{
+                  padding: "5px 11px", borderRadius: 7, border: "none", cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 11, fontWeight: 700,
+                  background: sess.status === key ? meta.bg : T.dim,
+                  color: sess.status === key ? meta.color : T.muted,
+                  outline: sess.status === key ? `1px solid ${meta.color}` : "none",
+                }}>{meta.label}</button>
+            ))}
+          </div>
+
+          {showMakeupForm && sess.status === "absent" && !student?.attendanceBased && (
+            <div style={{
+              marginTop: 6, padding: "8px", background: T.panel2,
+              borderRadius: 6, border: `0.6px solid ${T.border2}`, minWidth: 220
+            }}>
+              <div style={{ fontSize: 10, color: "#9A91FB", fontWeight: 600, marginBottom: 6 }}>
+                Schedule Makeup Class (optional)
+              </div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                <input
+                  type="number" value={makeupYear} onChange={e => setMakeupYear(Number(e.target.value))}
+                  min={new Date().getFullYear()} max={new Date().getFullYear() + 2}
+                  style={{ width:52, background:T.input, border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.text, fontSize:10, padding:"3px 5px", fontFamily:"inherit", outline:"none" }}
+                />
+                <select value={makeupMonth} onChange={e => setMakeupMonth(Number(e.target.value))}
+                  style={{ background:T.input, border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.text, fontSize:10, padding:"3px 5px", fontFamily:"inherit", outline:"none" }}>
+                  {Array.from({length:12},(_,i)=>i+1).map(m=>(
+                    <option key={m} value={m}>{new Date(2000,m-1,1).toLocaleDateString("en-MY",{month:"short"})}</option>
+                  ))}
+                </select>
+                <select value={makeupDay} onChange={e => setMakeupDay(Number(e.target.value))}
+                  style={{ width:44, background:T.input, border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.text, fontSize:10, padding:"3px 5px", fontFamily:"inherit", outline:"none" }}>
+                  {Array.from({length: new Date(makeupYear, makeupMonth, 0).getDate()},(_,i)=>i+1).map(d=>(
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display:"flex", gap:4 }}>
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    const makeupDate = `${makeupYear}-${String(makeupMonth).padStart(2,"0")}-${String(makeupDay).padStart(2,"0")}`;
+                    onScheduleMakeup(sess, makeupDate);
+                    setShowMakeupForm(false);
+                    setPickerOpen(false);
+                  }}
+                  style={{ flex:1, background:"rgba(154,145,251,0.2)", border:"none", borderRadius:3, color:"#9A91FB", fontSize:10, padding:"4px 0", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
+                  Schedule
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); setShowMakeupForm(false); setPickerOpen(false); }}
+                  style={{ background:"none", border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.muted, fontSize:10, padding:"4px 8px", cursor:"pointer", fontFamily:"inherit" }}>
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -56,10 +122,17 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, T, currentU
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: roomColor }}>{sess.startTime} – {sess.endTime}</span>
-          {sess.status !== "pending"
-            ? <Badge label={sm.label} color={sm.color} bg={sm.bg} />
-            : <span style={{ fontSize: 10, color: T.muted }}>Not marked</span>
-          }
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            {sess.isMakeup && (
+              <span style={{ fontSize:9, background:"rgba(154,145,251,0.2)", color:"#9A91FB", borderRadius:2, padding:"1px 5px", border:"0.6px solid rgba(154,145,251,0.3)" }}>
+                Makeup · from {sess.originalDate}
+              </span>
+            )}
+            {sess.status !== "pending"
+              ? <Badge label={sm.label} color={sm.color} bg={sm.bg} />
+              : <span style={{ fontSize: 10, color: T.muted }}>Not marked</span>
+            }
+          </div>
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, color: isOwnSession ? T.text : T.muted, marginBottom: 2 }}>{displayName}</div>
         {isOwnSession && <div style={{ fontSize: 11, color: T.muted }}>{teacher?.name ?? "—"}</div>}
@@ -73,6 +146,7 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, T, currentU
 export default function CalendarView({
   students, teachers, rooms, attendanceOverrides, setAttendanceOverrides,
   oneOffSessions, setOneOffSessions,
+  deferrals, addDeferral, removeDeferral,
   T, currentUser, sendClashRequest, isMobile, setDirty,
 }) {
   const today = new Date();
@@ -98,6 +172,35 @@ export default function CalendarView({
     return [...daySessions, ...oneOff];
   }, [daySessions, oneOffSessions, selDate]);
 
+  const makeupSessions = useMemo(() =>
+    (deferrals ?? [])
+      .filter(d => d.makeupDate === selDate)
+      .map(d => {
+        const st = students.find(s => s.id === d.studentId);
+        return {
+          id:           `makeup_${d.id}`,
+          deferralId:   d.id,
+          studentId:    d.studentId,
+          teacherId:    d.teacherId,
+          roomId:       st?.schedule?.roomId ?? "",
+          date:         selDate,
+          startTime:    st?.schedule?.startTime ?? "09:00",
+          endTime:      st?.schedule?.endTime   ?? "10:00",
+          isRecurring:  false,
+          isMakeup:     true,
+          originalDate: d.originalDate,
+          feeYearMonth: d.feeYearMonth,
+          status:       "pending",
+        };
+      }),
+    [deferrals, selDate, students]
+  );
+
+  const combinedSessions = useMemo(
+    () => [...allDaySessions, ...makeupSessions],
+    [allDaySessions, makeupSessions]
+  );
+
   const monthSessionCounts = useMemo(() => {
     const counts = {};
     const year = calYear, month = calMonth;
@@ -105,23 +208,34 @@ export default function CalendarView({
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       counts[dt] = getMergedSessionsForDate(dt, students, attendanceOverrides).length
-        + (oneOffSessions ?? []).filter(s => s.date === dt).length;
+        + (oneOffSessions ?? []).filter(s => s.date === dt).length
+        + (deferrals ?? []).filter(d => d.makeupDate === dt).length;
     }
     return counts;
-  }, [calYear, calMonth, students, attendanceOverrides, oneOffSessions]);
+  }, [calYear, calMonth, students, attendanceOverrides, oneOffSessions, deferrals]);
 
   function handleStatusChange(sess, status) {
     if (sess.isOneOff) {
       // One-off sessions carry their own status — update directly
       setOneOffSessions(prev => prev.map(s => s.id === sess.id ? { ...s, status } : s));
     } else {
-      // Recurring sessions use attendanceOverrides, keyed by (studentId, date)
+      // Recurring and makeup sessions use attendanceOverrides, keyed by (studentId, date)
       setAttendanceOverrides(prev => {
         const existing = prev.find(a => a.studentId === sess.studentId && a.date === sess.date);
         if (existing) return prev.map(a => a.studentId === sess.studentId && a.date === sess.date ? { ...a, status } : a);
         return [...prev, { id: uid(), studentId: sess.studentId, date: sess.date, status, notes: "" }];
       });
     }
+  }
+
+  function handleScheduleMakeup(sess, makeupDate) {
+    addDeferral({
+      studentId:    sess.studentId,
+      teacherId:    sess.teacherId,
+      originalDate: sess.date,
+      makeupDate,
+      createdBy:    currentUser?.uid ?? "",
+    });
   }
 
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -147,7 +261,7 @@ export default function CalendarView({
     if (!bookForm.studentId || !bookForm.startTime || !bookForm.endTime) return;
     const student = students.find(s => s.id === bookForm.studentId);
     const { roomId } = bookModal;
-    const roomSessions = allDaySessions.filter(s => s.roomId === roomId);
+    const roomSessions = combinedSessions.filter(s => s.roomId === roomId);
     const clash = roomSessions.find(s =>
       timesOverlap(bookForm.startTime, bookForm.endTime, s.startTime, s.endTime)
     );
@@ -243,7 +357,7 @@ export default function CalendarView({
         gap: 10
       }}>
         {rooms.map(room => {
-          const roomSess = allDaySessions
+          const roomSess = combinedSessions
             .filter(s => s.roomId === room.id)
             .sort((a, b) => a.startTime.localeCompare(b.startTime));
           return (
@@ -263,8 +377,19 @@ export default function CalendarView({
                   const st = students.find(s => s.id === sess.studentId);
                   const tc = teachers.find(t => t.id === sess.teacherId);
                   return (
-                    <SessionCard key={sess.id} sess={sess} student={st} teacher={tc} room={room}
-                      onStatusChange={handleStatusChange} T={T} currentUser={currentUser} isMobile={isMobile} />
+                    <div key={sess.id}>
+                      <SessionCard sess={sess} student={st} teacher={tc} room={room}
+                        onStatusChange={handleStatusChange}
+                        onScheduleMakeup={handleScheduleMakeup}
+                        T={T} currentUser={currentUser} isMobile={isMobile} />
+                      {sess.isMakeup && (
+                        <button
+                          onClick={() => removeDeferral(sess.deferralId)}
+                          style={{ background:"none", border:"none", color:T.muted, fontSize:10, cursor:"pointer", padding:"2px 0", fontFamily:"inherit" }}>
+                          × Remove makeup
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
                 <button onClick={() => openBookModal(room.id)} style={{

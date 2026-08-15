@@ -215,7 +215,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 20px", textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>🖥️</div>
-        <h2 style={{ fontSize: 18, fontWeight: 800, color: T.text, marginBottom: 10 }}>Desktop Required</h2>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 10, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Desktop Required</h2>
         <p style={{ fontSize: 14, color: T.muted, lineHeight: 1.7, maxWidth: 280 }}>
           User Management is only available on desktop. Please open StudioOS on a larger screen to manage accounts.
         </p>
@@ -227,7 +227,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
 
   return (
     <div>
-      <h2 style={{ fontSize: 22, fontWeight: 800, color: T.text, marginBottom: 18 }}>User Management</h2>
+      <h2 style={{ fontSize: 24, fontWeight: 700, color: T.text, marginBottom: 18, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>User Management</h2>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 22, flexWrap: "wrap" }}>
         <Stat T={T} label="Active Users"  value={users.length} />
@@ -238,7 +238,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       </div>
 
       {/* ── Create / Transfer Account ────────────────────────────────────────── */}
-      <Card T={T} style={{ marginBottom: 22 }} ref={formCardRef}>
+      <Card T={T} style={{ marginBottom: 22, border: `0.6px solid ${T.border2}`, borderRadius: 12 }} ref={formCardRef}>
 
         {transferTarget ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a2a1a", border: "1px solid #4ade8040", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
@@ -355,7 +355,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                 <option value="">— Select teacher —</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.instruments.join(", ")})</option>)}
               </Sel>
-              <div style={{ background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+              <div style={{ background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 10, padding: 14 }}>
                 <SectionTitle T={T}>Recurring Class Schedule</SectionTitle>
                 <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
                   <Sel T={T} label="Day of Week" value={form.schedule?.dayOfWeek ?? 6}
@@ -391,7 +391,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
           {success && <div style={{ fontSize: 12, color: "#4ade80", lineHeight: 1.6 }}>{success}</div>}
 
           <div style={{ display: "flex", gap: 9 }}>
-            <Btn T={T} onClick={createAccount}>
+            <Btn T={T} onClick={createAccount} style={{ background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>
               {saving ? "Saving…" : transferTarget ? "Create & Transfer" : formRole === "student" ? "Add Student" : "Create Invite"}
             </Btn>
             {transferTarget && <Btn T={T} variant="ghost" onClick={cancelTransfer}>Cancel Transfer</Btn>}
@@ -400,27 +400,30 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       </Card>
 
       {/* ── Users + Invites table ────────────────────────────────────────────── */}
-      <Card T={T} style={{ padding: 0, overflow: "hidden" }}>
+      <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={["User", "Email", "Role", "Status", "Linked Teacher", "Actions"]} />
           <tbody>
-            {allRows.map((entry, i) => {
+            {allRows.map((entry) => {
               const tc       = teachers.find(t => t.id === entry.teacherId);
               const rc       = ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim };
               const isPending = entry._type === "invite";
               const isTransferSource = transferTarget?.id === entry.id;
               return (
-                <tr key={entry.id} style={{
-                  borderBottom: `1px solid ${T.border}`,
-                  background: isTransferSource ? "#4ade8010" : i % 2 ? T.rowAlt : "transparent",
-                }}>
+                <tr key={entry.id}
+                  onMouseEnter={e => { if (!isTransferSource) e.currentTarget.style.background = T.hover; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = isTransferSource ? "#4ade8010" : "transparent"; }}
+                  style={{
+                    borderBottom: `0.6px solid ${T.border}`,
+                    background: isTransferSource ? "#4ade8010" : "transparent",
+                  }}>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                       {!isPending && entry.photoURL
                         ? <img src={entry.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0 }} />
                         : <Avatar name={entry.displayName || entry.email || "?"} size={30} />
                       }
-                      <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{entry.displayName}</span>
+                      <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{entry.displayName}</span>
                     </div>
                   </td>
                   <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{entry.email}</td>
@@ -433,7 +436,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                       : <Badge label="Active" color="#4ade80" bg="#052e16" />
                     }
                   </td>
-                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSub }}>{tc?.name ?? "—"}</td>
+                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{tc?.name ?? "—"}</td>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }}
@@ -462,7 +465,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       {transferConfirm && (
         <Modal T={T} title="Transfer Account" onClose={() => setTransferConfirm(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 10, padding: "13px 16px" }}>
+            <div style={{ background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 10, padding: "13px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <Avatar name={transferConfirm.displayName || transferConfirm.email || "?"} size={34} />
                 <div>

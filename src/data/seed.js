@@ -17,10 +17,10 @@ export const HOURS = Array.from({ length: 28 }, (_, i) => {
 export const TODAY = new Date().toISOString().split("T")[0];
 
 export const STATUS_META = {
-  present:          { label: "Present",          color: "#4ade80", bg: "#052e16" },
-  absent:           { label: "Absent",           color: "#f87171", bg: "#2d0a0a" },
-  late:             { label: "Late",             color: "#fbbf24", bg: "#451a03" },
-  pending_approval: { label: "Pending Approval", color: "#94a3b8", bg: "#1e293b" },
+  present:          { label: "Present",          color: "#14CA74", bg: "rgba(5,193,104,0.2)",   border: "rgba(5,193,104,0.5)" },
+  absent:           { label: "Absent",           color: "#FF5A65", bg: "rgba(255,90,101,0.2)",  border: "rgba(255,90,101,0.2)" },
+  late:             { label: "Late",             color: "#FDB52A", bg: "rgba(255,176,22,0.2)",  border: "rgba(255,176,22,0.2)" },
+  pending_approval: { label: "Pending",          color: "#FDB52A", bg: "rgba(255,176,22,0.2)",  border: "rgba(255,176,22,0.2)" },
 };
 
 export const ROOM_COLORS = [

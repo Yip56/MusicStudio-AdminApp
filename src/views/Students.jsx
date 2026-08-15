@@ -83,7 +83,7 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
           <option value="">— Select teacher —</option>
           {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.instruments.join(", ")})</option>)}
         </Sel>
-        <div style={{ background: T.panel2, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
+        <div style={{ background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 10, padding: 14 }}>
           <SectionTitle T={T}>Recurring Class Schedule</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
             <Sel T={T} label="Day of Week" value={form.schedule.dayOfWeek}
@@ -120,11 +120,11 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
   const gradeModalEl = gradeModal && (
     <Modal T={T} title="Request Grade Update" onClose={() => { setGradeModal(null); setGradeSuccess(null); }} width={420}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 9, padding: "11px 14px" }}>
+        <div style={{ background: T.bg, border: `0.6px solid ${T.border2}`, borderRadius: 9, padding: "11px 14px" }}>
           <div style={{ fontSize: 11, color: T.muted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>Student</div>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{gradeModal.name}</div>
         </div>
-        <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 9, padding: "11px 14px" }}>
+        <div style={{ background: T.bg, border: `0.6px solid ${T.border2}`, borderRadius: 9, padding: "11px 14px" }}>
           <div style={{ fontSize: 11, color: T.muted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>Current Grade</div>
           <Badge label={gradeModal.grade} color={T.accent} bg={T.accent + "18"} />
         </div>
@@ -155,12 +155,15 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
     return (
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Students</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Students</h2>
           {isElevated && <Btn T={T} onClick={openAdd} style={{ padding: "7px 14px", fontSize: 12 }}>+ Add</Btn>}
         </div>
 
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
-          style={{ width: "100%", boxSizing: "border-box", background: T.panel, border: `1px solid ${T.border2}`, borderRadius: 10, color: T.text, padding: "10px 14px", fontSize: 14, outline: "none", fontFamily: "inherit", marginBottom: 12 }} />
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, pointerEvents: "none", color: T.muted }}>🔍</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
+            style={{ width: "100%", boxSizing: "border-box", background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 4, color: T.text, padding: "9px 14px 9px 36px", fontSize: 12, outline: "none", fontFamily: "inherit", height: 42 }} />
+        </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map(s => {
@@ -245,38 +248,44 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: T.text }}>Students</h2>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
-            style={{ background: T.panel, border: `1px solid ${T.border2}`, borderRadius: 8, color: T.text, padding: "7px 13px", fontSize: 13, outline: "none", fontFamily: "inherit" }} />
-          {isElevated && <Btn T={T} onClick={openAdd}>+ Add Student</Btn>}
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Students</h2>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, pointerEvents: "none", color: T.muted }}>🔍</span>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+              style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 4, color: T.text, padding: "9px 14px 9px 36px", fontSize: 12, outline: "none", fontFamily: "inherit", height: 42 }} />
+          </div>
+          {isElevated && <Btn T={T} onClick={openAdd} style={{ background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>+ Add Student</Btn>}
         </div>
       </div>
 
-      <Card T={T} style={{ padding: 0, overflow: "hidden" }}>
+      <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={tableCols} />
           <tbody>
-            {filtered.map((s, i) => {
+            {filtered.map((s) => {
               const teacher = teachers.find(t => t.id === s.teacherId);
               const room    = rooms.find(r => r.id === s.schedule?.roomId);
               return (
-                <tr key={s.id} style={{ borderBottom: `1px solid ${T.border}`, background: i % 2 ? T.rowAlt : "transparent" }}>
+                <tr key={s.id}
+                  onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  style={{ borderBottom: `0.6px solid ${T.border}` }}>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                       <Avatar name={s.name} size={30} />
                       <div>
-                        <div style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{s.name}</div>
+                        <div style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{s.name}</div>
                         {room && <div style={{ fontSize: 10, color: T.muted }}>{room.name}</div>}
                       </div>
                     </div>
                   </td>
-                  <td style={{ padding: "11px 14px", fontSize: 13, color: T.textSub }}>{s.instrument}</td>
+                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{s.instrument}</td>
                   <td style={{ padding: "11px 14px" }}><Badge label={s.grade} color={T.accent} bg={T.accent + "18"} /></td>
                   {isElevated && (
-                    <td style={{ padding: "11px 14px", fontSize: 13, color: T.textSub }}>{teacher?.name ?? "—"}</td>
+                    <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{teacher?.name ?? "—"}</td>
                   )}
-                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.textSub }}>{DAYS_OF_WEEK[s.schedule?.dayOfWeek ?? 0]}</td>
+                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{DAYS_OF_WEEK[s.schedule?.dayOfWeek ?? 0]}</td>
                   <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{s.schedule?.startTime} – {s.schedule?.endTime}</td>
                   <td style={{ padding: "11px 14px" }}>
                     {s.attendanceBased

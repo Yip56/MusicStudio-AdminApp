@@ -85,29 +85,39 @@ export function getAttendedCountForMonth(studentId, year, month, attendanceOverr
 
 /**
  * Calculate payroll for a single student for a given month.
- * If attendanceBased: gross = (attended / scheduled) * fee
- * Else:               gross = full fee
- * Then split into teacher cut, admin cut, admin flat fee.
+ *
+ * Rules:
+ * - collected=false → everything is 0 (fee not yet received)
+ * - attendanceBased + attended=0 → everything is 0 (no classes to pay out on)
+ * - adminFlatFee is capped at gross (admin never takes more than what was collected)
+ * - adminCut = gross − teacherCut (total admin take, includes flat fee)
+ * - flatDeducted = the actual flat fee deducted (≤ gross)
+ * - deferredGrossExtra = pre-computed gross from deferred months to combine into this month
  */
-export function calcStudentPayroll(student, year, month, fees, commissionPct, adminFlatFee, attendanceOverrides) {
-  const grade    = student.grade;
-  const inst     = student.instrument;
-  const fee      = fees[inst]?.[grade] ?? 0;
+export function calcStudentPayroll(student, year, month, fees, commissionPct, adminFlatFee, attendanceOverrides, collected = false, deferredGrossExtra = 0) {
+  const fee       = fees[student.instrument]?.[student.grade] ?? 0;
   const scheduled = getScheduledCountForMonth(student, year, month);
   const attended  = getAttendedCountForMonth(student.id, year, month, attendanceOverrides);
 
-  let gross;
-  if (student.attendanceBased) {
-    gross = scheduled > 0 ? (attended / scheduled) * fee : 0;
-  } else {
-    gross = fee;
-  }
+  const zero = { fee, scheduled, attended, gross: 0, teacherCut: 0, adminCut: 0, flatDeducted: 0, afterFlat: 0 };
 
-  const afterFlat   = Math.max(0, gross - adminFlatFee);
-  const teacherCut  = (afterFlat * commissionPct) / 100;
-  const adminCut    = afterFlat - teacherCut;
+  if (!collected) return zero;
+  if (student.attendanceBased && attended === 0) return zero;
 
-  return { fee, scheduled, attended, gross, teacherCut, adminCut, adminFlatFee, afterFlat };
+  const ownGross = student.attendanceBased
+    ? (scheduled > 0 ? (attended / scheduled) * fee : 0)
+    : fee;
+
+  const gross = ownGross + deferredGrossExtra;
+
+  if (gross <= 0) return zero;
+
+  const flatDeducted = Math.min(adminFlatFee, gross);
+  const afterFlat    = gross - flatDeducted;
+  const teacherCut   = (afterFlat * commissionPct) / 100;
+  const adminCut     = gross - teacherCut;
+
+  return { fee, scheduled, attended, gross, teacherCut, adminCut, flatDeducted, afterFlat };
 }
 
 /**
