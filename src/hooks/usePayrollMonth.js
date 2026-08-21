@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   doc, onSnapshot, updateDoc, setDoc, serverTimestamp,
-  arrayUnion, arrayRemove,
+  arrayUnion, arrayRemove, deleteField,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -49,19 +49,6 @@ export function usePayrollMonth(yearMonth) {
     }
   }
 
-  async function _upsertArray(ref, updates) {
-    try {
-      await updateDoc(ref, updates);
-    } catch (e) {
-      if (e.code === "not-found") {
-        await setDoc(ref, { feeStatus: {}, payoutStatus: {} });
-        await updateDoc(ref, updates);
-      } else {
-        throw e;
-      }
-    }
-  }
-
   // ── public API ──────────────────────────────────────────────────────────────
 
   async function markFeeCollected(studentId, collected) {
@@ -80,11 +67,11 @@ export function usePayrollMonth(yearMonth) {
 
   /**
    * Defer this month's fee for a student to targetYearMonth.
-   * - Marks this month's entry with deferredToMonth = target
-   * - Adds this month to target's deferredFromMonths array
-   * - Clears collected status on this month (fee not yet received)
+   * grossAmount is the total gross being carried over (including any chained deferrals already
+   * rolled into this month), so that Oct knows the real amount it's receiving from Sep even if
+   * Sep itself had received a deferred amount from Aug.
    */
-  async function deferFee(studentId, targetYearMonth) {
+  async function deferFee(studentId, targetYearMonth, grossAmount = 0) {
     const srcRef = doc(db, "payroll_months", yearMonth);
     const tgtRef = doc(db, "payroll_months", targetYearMonth);
 
@@ -92,15 +79,14 @@ export function usePayrollMonth(yearMonth) {
       [`feeStatus.${studentId}.deferredToMonth`]: targetYearMonth,
     });
 
-    await _upsertArray(tgtRef, {
+    await _upsert(tgtRef, {
       [`feeStatus.${studentId}.deferredFromMonths`]: arrayUnion(yearMonth),
+      [`feeStatus.${studentId}.deferredFromAmounts.${yearMonth}`]: grossAmount,
     });
   }
 
   /**
    * Undo a fee deferral that was pointing to targetYearMonth.
-   * - Clears this month's deferredToMonth
-   * - Removes this month from target's deferredFromMonths array
    */
   async function undeferFee(studentId, targetYearMonth) {
     const srcRef = doc(db, "payroll_months", yearMonth);
@@ -110,8 +96,9 @@ export function usePayrollMonth(yearMonth) {
       [`feeStatus.${studentId}.deferredToMonth`]: null,
     });
 
-    await _upsertArray(tgtRef, {
+    await _upsert(tgtRef, {
       [`feeStatus.${studentId}.deferredFromMonths`]: arrayRemove(yearMonth),
+      [`feeStatus.${studentId}.deferredFromAmounts.${yearMonth}`]: deleteField(),
     });
   }
 

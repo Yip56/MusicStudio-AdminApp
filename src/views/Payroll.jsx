@@ -37,27 +37,32 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
   const allRows = teachers.map(t => {
     const myStudents = students.filter(s => s.teacherId === t.id);
     const details = myStudents.map(s => {
-      const collected          = feeStatus[s.id]?.collected          ?? false;
-      const deferredToMonth    = feeStatus[s.id]?.deferredToMonth    ?? null;
-      const deferredFromMonths = feeStatus[s.id]?.deferredFromMonths ?? [];
+      const collected           = feeStatus[s.id]?.collected           ?? false;
+      const deferredToMonth     = feeStatus[s.id]?.deferredToMonth     ?? null;
+      const deferredFromMonths  = feeStatus[s.id]?.deferredFromMonths  ?? [];
+      const deferredFromAmounts = feeStatus[s.id]?.deferredFromAmounts ?? {};
 
-      const deferredGrossExtra = deferredFromMonths.reduce((sum, ym) => {
+      // Per-month breakdown; use stored amount when available so chains carry the full value.
+      // Fall back to recomputing for old data that predates the stored-amount field.
+      const deferredFromDetails = deferredFromMonths.map(ym => {
+        if (ym in deferredFromAmounts) return { ym, amount: deferredFromAmounts[ym] };
         const [y, m] = ym.split("-").map(Number);
-        return sum + calcStudentPayroll(s, y, m - 1, fees, t.commissionPct, adminFlatFee, attendanceOverrides, true).gross;
-      }, 0);
+        return { ym, amount: calcStudentPayroll(s, y, m - 1, fees, t.commissionPct, adminFlatFee, attendanceOverrides, true).gross };
+      });
+      const deferredGrossExtra = deferredFromDetails.reduce((sum, df) => sum + df.amount, 0);
 
-      // When fee is deferred out, show what the gross would have been (for display only)
-      const deferredDisplayGross = deferredToMonth
-        ? calcStudentPayroll(s, selY, selM, fees, t.commissionPct, adminFlatFee, attendanceOverrides, true, 0).gross
-        : null;
+      // Total gross this month including deferred-in (collected=true, used for deferral display & chaining)
+      const hypotheticalGross = calcStudentPayroll(s, selY, selM, fees, t.commissionPct, adminFlatFee, attendanceOverrides, true, deferredGrossExtra).gross;
 
       return {
         student: s,
         collected,
         deferredToMonth,
         deferredFromMonths,
+        deferredFromAmounts,
+        deferredFromDetails,
         deferredGrossExtra,
-        deferredDisplayGross,
+        hypotheticalGross,
         ...calcStudentPayroll(s, selY, selM, fees, t.commissionPct, adminFlatFee, attendanceOverrides, collected, deferredGrossExtra),
       };
     });
@@ -89,6 +94,86 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
 
   function removeTeacher(id) { if (confirm("Remove teacher?")) setTeachers(p => p.filter(t => t.id !== id)); }
 
+  // ── Deferral summary data ─────────────────────────────────────────────────────
+  const deferralToEntries   = [];
+  const deferralFromEntries = [];
+  for (const row of rows) {
+    for (const d of row.details) {
+      if (d.deferredToMonth) {
+        deferralToEntries.push({ teacher: row.teacher.name, student: d.student.name, toMonth: d.deferredToMonth, amount: d.hypotheticalGross });
+      }
+      for (const df of d.deferredFromDetails) {
+        deferralFromEntries.push({ teacher: row.teacher.name, student: d.student.name, fromMonth: df.ym, amount: df.amount });
+      }
+    }
+  }
+  const deferralTotalTo   = deferralToEntries.reduce((s, e) => s + e.amount, 0);
+  const deferralTotalFrom = deferralFromEntries.reduce((s, e) => s + e.amount, 0);
+
+  const deferralCard = isElevated && (
+    <Card T={T} style={{ marginBottom: 18, padding: "14px 18px", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>
+        Fee Deferrals
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+        {/* Deferred To */}
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#FDB52A", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, paddingBottom: 6, borderBottom: `0.6px solid ${T.border}` }}>
+            Deferred To
+          </div>
+          {deferralToEntries.length === 0
+            ? <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No deferrals</div>
+            : <>
+                {deferralToEntries.map((e, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "7px 0", borderBottom: `0.6px solid ${T.border}` }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{e.student}</div>
+                      <div style={{ fontSize: 11, color: T.muted }}>{e.teacher}</div>
+                      <div style={{ fontSize: 10, color: "#FDB52A", marginTop: 2 }}>→ {formatYM(e.toMonth)}</div>
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#FDB52A", flexShrink: 0, marginLeft: 8 }}>RM {e.amount.toFixed(2)}</div>
+                  </div>
+                ))}
+                {deferralToEntries.length > 1 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, marginTop: 8, paddingTop: 6, borderTop: `0.6px solid ${T.border2}` }}>
+                    <span style={{ color: T.text }}>Total</span>
+                    <span style={{ color: "#FDB52A" }}>RM {deferralTotalTo.toFixed(2)}</span>
+                  </div>
+                )}
+              </>
+          }
+        </div>
+        {/* Deferred From */}
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9A91FB", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, paddingBottom: 6, borderBottom: `0.6px solid ${T.border}` }}>
+            Deferred From
+          </div>
+          {deferralFromEntries.length === 0
+            ? <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>No deferrals</div>
+            : <>
+                {deferralFromEntries.map((e, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "7px 0", borderBottom: `0.6px solid ${T.border}` }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{e.student}</div>
+                      <div style={{ fontSize: 11, color: T.muted }}>{e.teacher}</div>
+                      <div style={{ fontSize: 10, color: "#9A91FB", marginTop: 2 }}>← {formatYM(e.fromMonth)}</div>
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#9A91FB", flexShrink: 0, marginLeft: 8 }}>RM {e.amount.toFixed(2)}</div>
+                  </div>
+                ))}
+                {deferralFromEntries.length > 1 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, marginTop: 8, paddingTop: 6, borderTop: `0.6px solid ${T.border2}` }}>
+                    <span style={{ color: T.text }}>Total</span>
+                    <span style={{ color: "#9A91FB" }}>RM {deferralTotalFrom.toFixed(2)}</span>
+                  </div>
+                )}
+              </>
+          }
+        </div>
+      </div>
+    </Card>
+  );
+
   function toggleInstrument(inst) {
     setDirty?.(true);
     setForm(f => {
@@ -99,7 +184,12 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
 
   function handleDefer(studentId) {
     const target = deferTarget[studentId] ?? monthOpts[0].value;
-    deferFee(studentId, target);
+    let grossAmount = 0;
+    for (const row of allRows) {
+      const det = row.details.find(d => d.student.id === studentId);
+      if (det) { grossAmount = det.hypotheticalGross; break; }
+    }
+    deferFee(studentId, target, grossAmount);
     setDeferOpen(p => ({ ...p, [studentId]: false }));
   }
 
@@ -149,6 +239,8 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
               style={{ background: T.dim, border: "none", borderRadius: 7, padding: "6px 11px", cursor: "pointer", color: T.muted, fontSize: 14, fontFamily: "inherit" }}>›</button>
           </div>
         </div>
+
+        {deferralCard}
 
         {rows.map(row => (
           <Card key={row.teacher.id} T={T} style={{ marginBottom: 12, padding: 14 }}>
@@ -286,6 +378,8 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
           <Stat T={T} label="Total Collected"  value={`RM ${(grandTeacher + grandAdmin).toFixed(2)}`} icon="✓" />
         </div>
       )}
+
+      {deferralCard}
 
       {rows.map(row => (
         <Card key={row.teacher.id} T={T} style={{ marginBottom: 14, padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>

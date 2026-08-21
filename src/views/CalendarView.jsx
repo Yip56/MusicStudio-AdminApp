@@ -3,126 +3,71 @@ import { Btn, Badge, Card, SectionTitle, Sel, Modal } from "../components/UI.jsx
 import { getMergedSessionsForDate, getRecurringDates, fmtDate, uid, timesOverlap } from "../utils/helpers.js";
 import { TODAY, STATUS_META, HOURS } from "../data/seed.js";
 
-// ─── Session Card with hover/tap attendance ───────────────────────────────────
-function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleMakeup, T, currentUser, isMobile }) {
-  const [hovered,    setHovered]    = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [showMakeupForm, setShowMakeupForm] = useState(false);
-  const [makeupYear,  setMakeupYear]  = useState(new Date().getFullYear());
-  const [makeupMonth, setMakeupMonth] = useState(new Date().getMonth() + 1);
-  const [makeupDay,   setMakeupDay]   = useState(new Date().getDate());
+// ─── Session Card — click to open attendance popup ────────────────────────────
+function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, T, currentUser }) {
+  const defaultDefer = (() => {
+    const d = new Date(sess.date + "T00:00:00");
+    d.setDate(d.getDate() + 7);
+    return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+  })();
 
-  const sm = STATUS_META[sess.status] ?? { color: T.muted, bg: T.dim, label: "—" };
+  const [modalOpen,   setModalOpen]   = useState(false);
+  const [showDefer,   setShowDefer]   = useState(false);
+  const [deferDirty,  setDeferDirty]  = useState(false);
+  const [makeupYear,  setMakeupYear]  = useState(defaultDefer.year);
+  const [makeupMonth, setMakeupMonth] = useState(defaultDefer.month);
+  const [makeupDay,   setMakeupDay]   = useState(defaultDefer.day);
+  const [makeupStart, setMakeupStart] = useState("");
+  const [makeupEnd,   setMakeupEnd]   = useState("");
+
+  const sm        = STATUS_META[sess.status] ?? { color: T.muted, bg: T.dim, label: "—" };
   const roomColor = room?.color ?? "#888";
 
   const isOwnSession  = !currentUser || currentUser.role !== "teacher" || sess.teacherId === currentUser.teacherId;
   const displayName   = isOwnSession ? (student?.name ?? "—") : "Occupied";
   const canMarkAttend = isOwnSession && currentUser?.role !== undefined;
 
-  // Mobile: tap to toggle picker; Desktop: hover to show picker
-  const showPicker = isMobile ? pickerOpen : hovered;
-
-  function handleCardClick() {
-    if (isMobile && canMarkAttend) setPickerOpen(o => !o);
+  function tryClose() {
+    if (deferDirty && !window.confirm("You have unsaved changes in the defer form. Close without scheduling?")) return;
+    setModalOpen(false);
+    setShowDefer(false);
+    setDeferDirty(false);
   }
 
+  function handleStatusBtn(key) {
+    // clicking the active status again unmarks it
+    const newStatus = sess.status === key ? "pending" : key;
+    onStatusChange(sess, newStatus);
+    setModalOpen(false);
+  }
+
+  function handleSchedule() {
+    const makeupDate = `${makeupYear}-${String(makeupMonth).padStart(2,"0")}-${String(makeupDay).padStart(2,"0")}`;
+    onScheduleMakeup(sess, makeupDate, makeupStart || null, makeupEnd || null);
+    setDeferDirty(false);
+    setModalOpen(false);
+    setShowDefer(false);
+  }
+
+  const inp = {
+    background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 3,
+    color: T.text, fontSize: 11, padding: "4px 6px", fontFamily: "inherit", outline: "none",
+  };
+
   return (
-    <div
-      style={{ position: "relative" }}
-      onMouseEnter={() => !isMobile && setHovered(true)}
-      onMouseLeave={() => !isMobile && setHovered(false)}
-    >
-      {showPicker && canMarkAttend && (
-        <div style={{
-          position: "absolute", bottom: "100%", left: 0, zIndex: 50,
-          background: T.panel, border: `1px solid ${T.border2}`, borderRadius: 10,
-          padding: "6px", display: "flex", flexDirection: "column", gap: 6,
-          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-          whiteSpace: "nowrap",
-        }}>
-          <div style={{ display: "flex", gap: 6, flexWrap: isMobile ? "wrap" : "nowrap" }}>
-            {Object.entries(STATUS_META).filter(([k]) => k !== "pending_approval").map(([key, meta]) => (
-              <button key={key}
-                onClick={e => {
-                  e.stopPropagation();
-                  onStatusChange(sess, key);
-                  if (key === "absent" && !student?.attendanceBased) {
-                    setShowMakeupForm(true);
-                  } else {
-                    setShowMakeupForm(false);
-                    setPickerOpen(false);
-                  }
-                }}
-                style={{
-                  padding: "5px 11px", borderRadius: 7, border: "none", cursor: "pointer",
-                  fontFamily: "inherit", fontSize: 11, fontWeight: 700,
-                  background: sess.status === key ? meta.bg : T.dim,
-                  color: sess.status === key ? meta.color : T.muted,
-                  outline: sess.status === key ? `1px solid ${meta.color}` : "none",
-                }}>{meta.label}</button>
-            ))}
-          </div>
-
-          {showMakeupForm && sess.status === "absent" && !student?.attendanceBased && (
-            <div style={{
-              marginTop: 6, padding: "8px", background: T.panel2,
-              borderRadius: 6, border: `0.6px solid ${T.border2}`, minWidth: 220
-            }}>
-              <div style={{ fontSize: 10, color: "#9A91FB", fontWeight: 600, marginBottom: 6 }}>
-                Schedule Makeup Class (optional)
-              </div>
-              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
-                <input
-                  type="number" value={makeupYear} onChange={e => setMakeupYear(Number(e.target.value))}
-                  min={new Date().getFullYear()} max={new Date().getFullYear() + 2}
-                  style={{ width:52, background:T.input, border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.text, fontSize:10, padding:"3px 5px", fontFamily:"inherit", outline:"none" }}
-                />
-                <select value={makeupMonth} onChange={e => setMakeupMonth(Number(e.target.value))}
-                  style={{ background:T.input, border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.text, fontSize:10, padding:"3px 5px", fontFamily:"inherit", outline:"none" }}>
-                  {Array.from({length:12},(_,i)=>i+1).map(m=>(
-                    <option key={m} value={m}>{new Date(2000,m-1,1).toLocaleDateString("en-MY",{month:"short"})}</option>
-                  ))}
-                </select>
-                <select value={makeupDay} onChange={e => setMakeupDay(Number(e.target.value))}
-                  style={{ width:44, background:T.input, border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.text, fontSize:10, padding:"3px 5px", fontFamily:"inherit", outline:"none" }}>
-                  {Array.from({length: new Date(makeupYear, makeupMonth, 0).getDate()},(_,i)=>i+1).map(d=>(
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ display:"flex", gap:4 }}>
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    const makeupDate = `${makeupYear}-${String(makeupMonth).padStart(2,"0")}-${String(makeupDay).padStart(2,"0")}`;
-                    onScheduleMakeup(sess, makeupDate);
-                    setShowMakeupForm(false);
-                    setPickerOpen(false);
-                  }}
-                  style={{ flex:1, background:"rgba(154,145,251,0.2)", border:"none", borderRadius:3, color:"#9A91FB", fontSize:10, padding:"4px 0", cursor:"pointer", fontFamily:"inherit", fontWeight:600 }}>
-                  Schedule
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); setShowMakeupForm(false); setPickerOpen(false); }}
-                  style={{ background:"none", border:`0.6px solid ${T.border2}`, borderRadius:3, color:T.muted, fontSize:10, padding:"4px 8px", cursor:"pointer", fontFamily:"inherit" }}>
-                  Skip
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div onClick={handleCardClick} style={{
-        background: T.panel, border: `1px solid ${roomColor}40`,
-        borderLeft: `3px solid ${roomColor}`, borderRadius: 10, padding: "10px 12px",
-        cursor: canMarkAttend ? "pointer" : "default", transition: "box-shadow 0.15s",
-        boxShadow: hovered ? `0 0 0 2px ${roomColor}60` : "none",
-        opacity: sess.status === "pending_approval" ? 0.75 : 1,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: roomColor }}>{sess.startTime} – {sess.endTime}</span>
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+    <>
+      <div
+        onClick={() => canMarkAttend && setModalOpen(true)}
+        style={{
+          background: T.panel, border: `1px solid ${roomColor}40`,
+          borderLeft: `3px solid ${roomColor}`, borderRadius: 10, padding: "10px 12px",
+          cursor: canMarkAttend ? "pointer" : "default",
+          opacity: sess.status === "pending_approval" ? 0.75 : 1,
+        }}
+      >
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+          <span style={{ fontSize:11, fontWeight:700, color:roomColor }}>{sess.startTime} – {sess.endTime}</span>
+          <div style={{ display:"flex", alignItems:"center", gap:5 }}>
             {sess.isMakeup && (
               <span style={{ fontSize:9, background:"rgba(154,145,251,0.2)", color:"#9A91FB", borderRadius:2, padding:"1px 5px", border:"0.6px solid rgba(154,145,251,0.3)" }}>
                 Makeup · from {sess.originalDate}
@@ -130,15 +75,139 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
             )}
             {sess.status !== "pending"
               ? <Badge label={sm.label} color={sm.color} bg={sm.bg} />
-              : <span style={{ fontSize: 10, color: T.muted }}>Not marked</span>
+              : <span style={{ fontSize:10, color:T.muted }}>Not marked</span>
             }
           </div>
         </div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: isOwnSession ? T.text : T.muted, marginBottom: 2 }}>{displayName}</div>
-        {isOwnSession && <div style={{ fontSize: 11, color: T.muted }}>{teacher?.name ?? "—"}</div>}
-        {sess.notes && isOwnSession && <div style={{ fontSize: 10, color: T.muted, marginTop: 3, fontStyle: "italic" }}>{sess.notes}</div>}
+        <div style={{ fontSize:12, fontWeight:600, color:isOwnSession ? T.text : T.muted, marginBottom:2 }}>{displayName}</div>
+        {isOwnSession && <div style={{ fontSize:11, color:T.muted }}>{teacher?.name ?? "—"}</div>}
+        {sess.notes && isOwnSession && <div style={{ fontSize:10, color:T.muted, marginTop:3, fontStyle:"italic" }}>{sess.notes}</div>}
       </div>
-    </div>
+
+      {modalOpen && (
+        <div
+          onClick={tryClose}
+          style={{
+            position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:200,
+            display:"flex", alignItems:"center", justifyContent:"center",
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background:T.panel, border:`0.6px solid ${T.border2}`, borderRadius:12,
+              padding:20, width:320, boxShadow:"0px 17px 17px rgba(1,5,17,0.3)",
+              maxHeight:"90vh", overflowY:"auto",
+            }}
+          >
+            {/* Header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
+              <div>
+                <div style={{ fontWeight:700, color:T.text, fontSize:14, marginBottom:2 }}>{displayName}</div>
+                <div style={{ color:T.muted, fontSize:11 }}>{sess.startTime}–{sess.endTime} · {teacher?.name ?? "—"}</div>
+              </div>
+              <button onClick={tryClose} style={{ background:"none", border:"none", color:T.muted, fontSize:22, cursor:"pointer", padding:"0 2px", lineHeight:1 }}>×</button>
+            </div>
+
+            {/* Current status */}
+            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:12, fontSize:11, color:T.muted }}>
+              Status: <Badge label={sm.label} color={sm.color} bg={sm.bg} />
+            </div>
+
+            {/* Deferred class info */}
+            {sess.isDeferred && (
+              <div style={{ background:"rgba(154,145,251,0.1)", border:"0.6px solid rgba(154,145,251,0.35)", borderRadius:7, padding:"8px 10px", marginBottom:10, fontSize:11, color:"#9A91FB" }}>
+                Makeup scheduled for <strong>{sess.makeupDate}</strong>
+              </div>
+            )}
+
+            {/* Present / Absent — hidden for deferred sessions */}
+            {!sess.isDeferred && (
+              <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                {[["present","Present"],["absent","Absent"]].map(([key,label]) => {
+                  const meta = STATUS_META[key];
+                  const active = sess.status === key;
+                  return (
+                    <button key={key} onClick={() => handleStatusBtn(key)} style={{
+                      flex:1, padding:"9px 0", borderRadius:6,
+                      border: active ? `1px solid ${meta.color}` : `0.6px solid ${T.border2}`,
+                      background: active ? meta.bg : T.dim,
+                      color: active ? meta.color : T.muted,
+                      cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Remove Deferral — only on the original deferred session */}
+            {sess.isDeferred && (
+              <button
+                onClick={() => { onRemoveDeferral(sess.deferralId); setModalOpen(false); }}
+                style={{
+                  width:"100%", padding:"9px 0", borderRadius:6, marginBottom:10,
+                  border:`0.6px solid rgba(255,90,101,0.4)`,
+                  background:"rgba(255,90,101,0.08)", color:"#FF5A65",
+                  cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                }}
+              >Remove Deferral</button>
+            )}
+
+            {/* Defer Class — only for non-attendance-based, non-makeup, non-already-deferred sessions */}
+            {!student?.attendanceBased && !sess.isMakeup && !sess.isDeferred && (
+              <>
+                <button
+                  onClick={() => setShowDefer(v => !v)}
+                  style={{
+                    width:"100%", padding:"9px 0", borderRadius:6,
+                    border: showDefer ? "1px solid #9A91FB" : `0.6px solid ${T.border2}`,
+                    background: showDefer ? "rgba(154,145,251,0.2)" : T.dim,
+                    color: showDefer ? "#9A91FB" : T.muted,
+                    cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                    marginBottom: showDefer ? 10 : 0,
+                  }}
+                >
+                  {showDefer ? "▲ Defer Class" : "▼ Defer Class"}
+                </button>
+
+                {showDefer && (
+                  <div style={{ background:T.panel2, borderRadius:8, border:`0.6px solid ${T.border2}`, padding:12 }}>
+                    <div style={{ fontSize:10, color:"#9A91FB", fontWeight:600, marginBottom:8 }}>Makeup Date</div>
+
+                    <div style={{ display:"flex", gap:4, marginBottom:8 }}>
+                      <input type="number" value={makeupYear} min={2020} max={2035}
+                        onChange={e => { setMakeupYear(Number(e.target.value)); setDeferDirty(true); }}
+                        style={{ ...inp, width:60 }} placeholder="Year" />
+                      <input type="number" value={makeupMonth} min={1} max={12}
+                        onChange={e => { setMakeupMonth(Number(e.target.value)); setDeferDirty(true); }}
+                        style={{ ...inp, width:48 }} placeholder="Mo" />
+                      <input type="number" value={makeupDay} min={1} max={31}
+                        onChange={e => { setMakeupDay(Number(e.target.value)); setDeferDirty(true); }}
+                        style={{ ...inp, width:44 }} placeholder="Day" />
+                    </div>
+
+                    <div style={{ display:"flex", gap:4, marginBottom:10 }}>
+                      <input type="time" value={makeupStart}
+                        onChange={e => { setMakeupStart(e.target.value); setDeferDirty(true); }}
+                        style={{ ...inp, flex:1 }} placeholder="Start time" />
+                      <input type="time" value={makeupEnd}
+                        onChange={e => { setMakeupEnd(e.target.value); setDeferDirty(true); }}
+                        style={{ ...inp, flex:1 }} placeholder="End time" />
+                    </div>
+
+                    <button onClick={handleSchedule} style={{
+                      width:"100%", padding:"9px 0", borderRadius:6, border:"none",
+                      background:"#9A91FB", color:"#fff",
+                      cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                    }}>Schedule Makeup</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -146,7 +215,7 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
 export default function CalendarView({
   students, teachers, rooms, attendanceOverrides, setAttendanceOverrides,
   oneOffSessions, setOneOffSessions,
-  deferrals, addDeferral, removeDeferral,
+  deferrals, addDeferral, removeDeferral, updateDeferralStatus,
   T, currentUser, sendClashRequest, isMobile, setDirty,
 }) {
   const today = new Date();
@@ -184,22 +253,31 @@ export default function CalendarView({
           teacherId:    d.teacherId,
           roomId:       st?.schedule?.roomId ?? "",
           date:         selDate,
-          startTime:    st?.schedule?.startTime ?? "09:00",
-          endTime:      st?.schedule?.endTime   ?? "10:00",
+          startTime:    d.makeupStartTime ?? st?.schedule?.startTime ?? "09:00",
+          endTime:      d.makeupEndTime   ?? st?.schedule?.endTime   ?? "10:00",
           isRecurring:  false,
           isMakeup:     true,
           originalDate: d.originalDate,
           feeYearMonth: d.feeYearMonth,
-          status:       "pending",
+          status:       d.makeupStatus ?? "pending",
         };
       }),
     [deferrals, selDate, students]
   );
 
-  const combinedSessions = useMemo(
-    () => [...allDaySessions, ...makeupSessions],
-    [allDaySessions, makeupSessions]
-  );
+  const combinedSessions = useMemo(() => {
+    const all = [...allDaySessions, ...makeupSessions];
+    return all.map(sess => {
+      // Tag recurring sessions that have been deferred (and not yet explicitly marked present/absent)
+      if (!sess.isMakeup && !sess.isOneOff && sess.status === "pending") {
+        const deferral = deferrals?.find(d => d.studentId === sess.studentId && d.originalDate === sess.date);
+        if (deferral) {
+          return { ...sess, status: "deferred", isDeferred: true, deferralId: deferral.id, makeupDate: deferral.makeupDate };
+        }
+      }
+      return sess;
+    });
+  }, [allDaySessions, makeupSessions, deferrals]);
 
   const monthSessionCounts = useMemo(() => {
     const counts = {};
@@ -215,12 +293,18 @@ export default function CalendarView({
   }, [calYear, calMonth, students, attendanceOverrides, oneOffSessions, deferrals]);
 
   function handleStatusChange(sess, status) {
-    if (sess.isOneOff) {
-      // One-off sessions carry their own status — update directly
+    if (sess.isMakeup) {
+      // Makeup sessions store attendance on the deferral doc to avoid key collision with recurring sessions
+      updateDeferralStatus(sess.deferralId, status === "pending" ? null : status);
+    } else if (sess.isOneOff) {
       setOneOffSessions(prev => prev.map(s => s.id === sess.id ? { ...s, status } : s));
     } else {
-      // Recurring and makeup sessions use attendanceOverrides, keyed by (studentId, date)
+      // Recurring sessions use attendanceOverrides keyed by (studentId, date)
       setAttendanceOverrides(prev => {
+        if (status === "pending") {
+          // Unmark — remove the override entirely
+          return prev.filter(a => !(a.studentId === sess.studentId && a.date === sess.date));
+        }
         const existing = prev.find(a => a.studentId === sess.studentId && a.date === sess.date);
         if (existing) return prev.map(a => a.studentId === sess.studentId && a.date === sess.date ? { ...a, status } : a);
         return [...prev, { id: uid(), studentId: sess.studentId, date: sess.date, status, notes: "" }];
@@ -228,12 +312,14 @@ export default function CalendarView({
     }
   }
 
-  function handleScheduleMakeup(sess, makeupDate) {
+  function handleScheduleMakeup(sess, makeupDate, makeupStartTime, makeupEndTime) {
     addDeferral({
       studentId:    sess.studentId,
       teacherId:    sess.teacherId,
       originalDate: sess.date,
       makeupDate,
+      makeupStartTime,
+      makeupEndTime,
       createdBy:    currentUser?.uid ?? "",
     });
   }
@@ -381,7 +467,8 @@ export default function CalendarView({
                       <SessionCard sess={sess} student={st} teacher={tc} room={room}
                         onStatusChange={handleStatusChange}
                         onScheduleMakeup={handleScheduleMakeup}
-                        T={T} currentUser={currentUser} isMobile={isMobile} />
+                        onRemoveDeferral={removeDeferral}
+                        T={T} currentUser={currentUser} />
                       {sess.isMakeup && (
                         <button
                           onClick={() => removeDeferral(sess.deferralId)}

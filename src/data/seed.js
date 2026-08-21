@@ -1,8 +1,10 @@
 // ─── Constants ────────────────────────────────────────────────────────────────
 export const GRADE_LABELS = [
-  "No Grade","Debut","Grade 1","Grade 2","Grade 3","Grade 4",
+  "Beginner","Grade 1","Grade 2","Grade 3","Grade 4",
   "Grade 5","Grade 6","Grade 7","Grade 8"
 ];
+
+export const CONTEMPORARY_GRADE_LABELS = ["Beginner","Intermediate","Advanced"];
 
 export const INSTRUMENTS = ["Piano","Drum","Guitar","Violin","Vocals","Flute"];
 
@@ -19,7 +21,7 @@ export const TODAY = new Date().toISOString().split("T")[0];
 export const STATUS_META = {
   present:          { label: "Present",          color: "#14CA74", bg: "rgba(5,193,104,0.2)",   border: "rgba(5,193,104,0.5)" },
   absent:           { label: "Absent",           color: "#FF5A65", bg: "rgba(255,90,101,0.2)",  border: "rgba(255,90,101,0.2)" },
-  late:             { label: "Late",             color: "#FDB52A", bg: "rgba(255,176,22,0.2)",  border: "rgba(255,176,22,0.2)" },
+  deferred:         { label: "Deferred",         color: "#9A91FB", bg: "rgba(154,145,251,0.15)", border: "rgba(154,145,251,0.3)" },
   pending_approval: { label: "Pending",          color: "#FDB52A", bg: "rgba(255,176,22,0.2)",  border: "rgba(255,176,22,0.2)" },
 };
 
@@ -37,12 +39,21 @@ export const SEED_ROOMS = [
 ];
 
 export const SEED_FEES = {
-  Piano:  { "No Grade":150,"Debut":160,"Grade 1":175,"Grade 2":190,"Grade 3":205,"Grade 4":220,"Grade 5":235,"Grade 6":250,"Grade 7":265,"Grade 8":280 },
-  Drum:   { "No Grade":150,"Debut":160,"Grade 1":170,"Grade 2":185,"Grade 3":200,"Grade 4":215,"Grade 5":230,"Grade 6":245,"Grade 7":260,"Grade 8":275 },
-  Guitar: { "No Grade":140,"Debut":150,"Grade 1":165,"Grade 2":180,"Grade 3":195,"Grade 4":210,"Grade 5":225,"Grade 6":240,"Grade 7":255,"Grade 8":270 },
-  Violin: { "No Grade":160,"Debut":170,"Grade 1":185,"Grade 2":200,"Grade 3":215,"Grade 4":230,"Grade 5":245,"Grade 6":260,"Grade 7":275,"Grade 8":290 },
-  Vocals: { "No Grade":130,"Debut":140,"Grade 1":155,"Grade 2":170,"Grade 3":185,"Grade 4":200,"Grade 5":215,"Grade 6":230,"Grade 7":245,"Grade 8":260 },
-  Flute:  { "No Grade":140,"Debut":150,"Grade 1":165,"Grade 2":180,"Grade 3":195,"Grade 4":210,"Grade 5":225,"Grade 6":240,"Grade 7":255,"Grade 8":270 },
+  Piano:  { "Beginner":160,"Grade 1":175,"Grade 2":190,"Grade 3":205,"Grade 4":220,"Grade 5":235,"Grade 6":250,"Grade 7":265,"Grade 8":280 },
+  Drum:   { "Beginner":160,"Grade 1":170,"Grade 2":185,"Grade 3":200,"Grade 4":215,"Grade 5":230,"Grade 6":245,"Grade 7":260,"Grade 8":275 },
+  Guitar: { "Beginner":150,"Grade 1":165,"Grade 2":180,"Grade 3":195,"Grade 4":210,"Grade 5":225,"Grade 6":240,"Grade 7":255,"Grade 8":270 },
+  Violin: { "Beginner":170,"Grade 1":185,"Grade 2":200,"Grade 3":215,"Grade 4":230,"Grade 5":245,"Grade 6":260,"Grade 7":275,"Grade 8":290 },
+  Vocals: { "Beginner":140,"Grade 1":155,"Grade 2":170,"Grade 3":185,"Grade 4":200,"Grade 5":215,"Grade 6":230,"Grade 7":245,"Grade 8":260 },
+  Flute:  { "Beginner":150,"Grade 1":165,"Grade 2":180,"Grade 3":195,"Grade 4":210,"Grade 5":225,"Grade 6":240,"Grade 7":255,"Grade 8":270 },
+};
+
+export const SEED_CONTEMPORARY_FEES = {
+  Piano:  { "Beginner":160,"Intermediate":200,"Advanced":250 },
+  Drum:   { "Beginner":160,"Intermediate":200,"Advanced":250 },
+  Guitar: { "Beginner":160,"Intermediate":200,"Advanced":250 },
+  Violin: { "Beginner":160,"Intermediate":200,"Advanced":250 },
+  Vocals: { "Beginner":160,"Intermediate":200,"Advanced":250 },
+  Flute:  { "Beginner":160,"Intermediate":200,"Advanced":250 },
 };
 
 export const SEED_TEACHERS = [
@@ -69,7 +80,7 @@ export const SEED_STUDENTS = [
     schedule: { dayOfWeek: 3, startTime: "11:00", endTime: "12:00", roomId: "r2" }
   },
   {
-    id: "s4", name: "Diana Foo",   instrument: "Piano", grade: "Debut",
+    id: "s4", name: "Diana Foo",   instrument: "Piano", grade: "Beginner",
     teacherId: "t1", attendanceBased: false,
     schedule: { dayOfWeek: 1, startTime: "14:00", endTime: "15:00", roomId: "r1" }
   },
@@ -85,5 +96,5 @@ export const SEED_STUDENTS = [
 export const SEED_ATTENDANCE = [
   { id: "a1", studentId: "s1", date: TODAY, status: "present", notes: "" },
   { id: "a2", studentId: "s2", date: TODAY, status: "absent",  notes: "Called sick" },
-  { id: "a3", studentId: "s3", date: TODAY, status: "late",    notes: "10 min late" },
+  { id: "a3", studentId: "s3", date: TODAY, status: "present", notes: "" },
 ];

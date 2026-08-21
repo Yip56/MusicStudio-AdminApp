@@ -215,7 +215,6 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
                       {isElevated && (
                         <>
                           <Btn T={T} variant="ghost" style={{ flex: 1, fontSize: 12 }} onClick={() => openEdit(s)}>Edit</Btn>
-                          <Btn T={T} variant="danger" style={{ flex: 1, fontSize: 12 }} onClick={() => remove(s.id)}>Remove</Btn>
                         </>
                       )}
                       {isTeacher && (
@@ -298,7 +297,6 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
                       {isElevated && (
                         <>
                           <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openEdit(s)}>Edit</Btn>
-                          <Btn T={T} variant="danger" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => remove(s.id)}>Remove</Btn>
                         </>
                       )}
                       {isTeacher && (

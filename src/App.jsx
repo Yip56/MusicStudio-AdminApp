@@ -8,7 +8,7 @@ import { useMobile } from "./hooks/useMobile.js";
 import { useClassDeferrals } from "./hooks/useClassDeferrals.js";
 import { getTokens } from "./utils/tokens.js";
 import {
-  SEED_STUDENTS, SEED_TEACHERS, SEED_ROOMS, SEED_FEES, SEED_ATTENDANCE
+  SEED_STUDENTS, SEED_TEACHERS, SEED_ROOMS, SEED_FEES, SEED_ATTENDANCE, SEED_CONTEMPORARY_FEES
 } from "./data/seed.js";
 
 import Dashboard      from "./views/Dashboard.jsx";
@@ -52,10 +52,11 @@ export default function App() {
   const [teachers,       setTeachers]       = useState(SEED_TEACHERS);
   const [rooms,          setRooms]          = useState(SEED_ROOMS);
   const [fees,           setFees]           = useState(SEED_FEES);
+  const [contemporaryFees, setContemporaryFees] = useState(SEED_CONTEMPORARY_FEES);
   const [attendanceOverrides, setAttendanceOverrides] = useState(SEED_ATTENDANCE);
   const [adminFlatFee,   setAdminFlatFee]   = useState(5);
   const [oneOffSessions, setOneOffSessions] = useState([]);
-  const { deferrals, addDeferral, removeDeferral } = useClassDeferrals();
+  const { deferrals, addDeferral, removeDeferral, updateDeferralStatus } = useClassDeferrals();
 
   useEffect(() => {
     if (!dirty) return;
@@ -137,10 +138,11 @@ export default function App() {
     teachers, setTeachers,
     rooms,    setRooms,
     fees,     setFees,
+    contemporaryFees, setContemporaryFees,
     attendanceOverrides, setAttendanceOverrides,
     adminFlatFee, setAdminFlatFee,
     oneOffSessions, setOneOffSessions,
-    deferrals, addDeferral, removeDeferral,
+    deferrals, addDeferral, removeDeferral, updateDeferralStatus,
     T,
     currentUser,
     isMobile,

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   collection, onSnapshot, addDoc, deleteDoc,
-  doc, serverTimestamp,
+  doc, serverTimestamp, updateDoc,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -29,12 +29,14 @@ export function useClassDeferrals() {
     });
   }, []);
 
-  async function addDeferral({ studentId, teacherId, originalDate, makeupDate, createdBy }) {
+  async function addDeferral({ studentId, teacherId, originalDate, makeupDate, makeupStartTime, makeupEndTime, createdBy }) {
     await addDoc(collection(db, "class_deferrals"), {
       studentId,
       teacherId,
       originalDate,
       makeupDate,
+      ...(makeupStartTime ? { makeupStartTime } : {}),
+      ...(makeupEndTime   ? { makeupEndTime }   : {}),
       feeYearMonth: originalDate.slice(0, 7),
       createdBy,
       createdAt: serverTimestamp(),
@@ -45,5 +47,9 @@ export function useClassDeferrals() {
     await deleteDoc(doc(db, "class_deferrals", id));
   }
 
-  return { deferrals, addDeferral, removeDeferral };
+  async function updateDeferralStatus(id, status) {
+    await updateDoc(doc(db, "class_deferrals", id), { makeupStatus: status ?? null });
+  }
+
+  return { deferrals, addDeferral, removeDeferral, updateDeferralStatus };
 }

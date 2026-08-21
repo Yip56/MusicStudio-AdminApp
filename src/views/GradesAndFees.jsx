@@ -1,117 +1,71 @@
 import { useState } from "react";
-import { Avatar, Badge, Card, Btn, THead, SectionTitle } from "../components/UI.jsx";
-import { GRADE_LABELS, INSTRUMENTS } from "../data/seed.js";
+import { Card, Btn, SectionTitle } from "../components/UI.jsx";
+import { GRADE_LABELS, CONTEMPORARY_GRADE_LABELS, INSTRUMENTS } from "../data/seed.js";
 
-export default function GradesAndFees({ students, setStudents, fees, setFees, T, isMobile }) {
-  const [tab,     setTab]     = useState("grades");
-  const [feeInst, setFeeInst] = useState("Piano");
+export default function GradesAndFees({ fees, setFees, contemporaryFees, setContemporaryFees, T, isMobile }) {
+  const [syllabus, setSyllabus] = useState("classical");
+  const [feeInst,  setFeeInst]  = useState("Piano");
 
-  function setGrade(id, grade) {
-    setStudents(p => p.map(s => s.id === id ? { ...s, grade } : s));
-  }
-  function setFeeVal(grade, val) {
+  function setClassicalFee(grade, val) {
     setFees(p => ({ ...p, [feeInst]: { ...p[feeInst], [grade]: Number(val) } }));
   }
+  function setContemporaryFee(grade, val) {
+    setContemporaryFees(p => ({ ...p, [feeInst]: { ...p[feeInst], [grade]: Number(val) } }));
+  }
+
+  const feeCell = (label, value, onChange) => (
+    <div key={label} style={{ background: T.bg, border: `0.6px solid ${T.border2}`, borderRadius: 9, padding: "11px 13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{label}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <span style={{ fontSize: 11, color: T.muted }}>RM</span>
+        <input type="number" value={value ?? 0} onChange={e => onChange(label, e.target.value)}
+          style={{ width: 56, background: T.input, border: `1px solid ${T.border2}`, borderRadius: 6, color: T.accent, padding: "4px 6px", fontSize: 13, outline: "none", fontFamily: "inherit", textAlign: "right", fontWeight: 700 }} />
+      </div>
+    </div>
+  );
+
+  const classicalSection = (
+    <>
+      <SectionTitle T={T}>Classical — {feeInst}</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(190px, 1fr))", gap: 9, marginBottom: syllabus === "both" ? 24 : 0 }}>
+        {GRADE_LABELS.map(g => feeCell(g, fees[feeInst]?.[g], setClassicalFee))}
+      </div>
+    </>
+  );
+
+  const contemporarySection = (
+    <>
+      <SectionTitle T={T}>Contemporary — {feeInst}</SectionTitle>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(190px, 1fr))", gap: 9 }}>
+        {CONTEMPORARY_GRADE_LABELS.map(g => feeCell(g, contemporaryFees[feeInst]?.[g], setContemporaryFee))}
+      </div>
+    </>
+  );
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Grades & Fees</h2>
         <div style={{ display: "flex", gap: 7 }}>
-          <Btn T={T} variant={tab === "grades" ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setTab("grades")}>Grades</Btn>
-          <Btn T={T} variant={tab === "fees"   ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setTab("fees")}>Fees</Btn>
+          <Btn T={T} variant={syllabus === "classical"    ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("classical")}>Classical</Btn>
+          <Btn T={T} variant={syllabus === "contemporary" ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("contemporary")}>Contemporary</Btn>
+          <Btn T={T} variant={syllabus === "both"         ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("both")}>Both</Btn>
         </div>
       </div>
 
-      {tab === "grades" && (
-        isMobile ? (
-          /* Mobile: card list */
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {students.map(s => (
-              <div key={s.id} style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 14, padding: "13px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                  <Avatar name={s.name} size={34} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{s.name}</div>
-                    <div style={{ fontSize: 12, color: T.textSub }}>{s.instrument}</div>
-                  </div>
-                  <Badge label={s.grade} color={T.accent} bg={T.accent + "18"} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                  <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>Change to:</span>
-                  <select value={s.grade} onChange={e => setGrade(s.id, e.target.value)}
-                    style={{ flex: 1, background: T.input, border: `1px solid ${T.border2}`, borderRadius: 8, color: T.text, padding: "8px 10px", fontSize: 13, outline: "none", fontFamily: "inherit", appearance: "none" }}>
-                    {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
-                  </select>
-                </div>
-              </div>
-            ))}
-            {students.length === 0 && (
-              <div style={{ textAlign: "center", padding: "30px 0", color: T.muted, fontSize: 13 }}>No students.</div>
-            )}
-          </div>
-        ) : (
-          /* Desktop: table */
-          <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <THead T={T} cols={["Student", "Instrument", "Current Grade", "Change Grade"]} />
-              <tbody>
-                {students.map((s) => (
-                  <tr key={s.id}
-                    onMouseEnter={e => e.currentTarget.style.background = T.hover}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                    style={{ borderBottom: `0.6px solid ${T.border}` }}>
-                    <td style={{ padding: "11px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                        <Avatar name={s.name} size={30} />
-                        <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{s.name}</span>
-                      </div>
-                    </td>
-                    <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{s.instrument}</td>
-                    <td style={{ padding: "11px 14px" }}>
-                      <Badge label={s.grade} color={T.accent} bg={T.accent + "18"} />
-                    </td>
-                    <td style={{ padding: "11px 14px" }}>
-                      <select value={s.grade} onChange={e => setGrade(s.id, e.target.value)}
-                        style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "5px 9px", fontSize: 12, outline: "none", fontFamily: "inherit", appearance: "none" }}>
-                        {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        )
-      )}
+      <div style={{ display: "flex", gap: 7, marginBottom: 16, flexWrap: "wrap" }}>
+        {INSTRUMENTS.map(i => (
+          <Btn key={i} T={T} variant={feeInst === i ? "primary" : "ghost"}
+            style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}}
+            onClick={() => setFeeInst(i)}>{i}</Btn>
+        ))}
+      </div>
 
-      {tab === "fees" && (
-        <div>
-          <div style={{ display: "flex", gap: 7, marginBottom: 16, flexWrap: "wrap" }}>
-            {INSTRUMENTS.map(i => (
-              <Btn key={i} T={T} variant={feeInst === i ? "primary" : "ghost"}
-                style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}}
-                onClick={() => setFeeInst(i)}>{i}</Btn>
-            ))}
-          </div>
-          <Card T={T}>
-            <SectionTitle T={T}>Monthly Fees — {feeInst}</SectionTitle>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(190px, 1fr))", gap: 9 }}>
-              {GRADE_LABELS.map(g => (
-                <div key={g} style={{ background: T.bg, border: `0.6px solid ${T.border2}`, borderRadius: 9, padding: "11px 13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{g}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontSize: 11, color: T.muted }}>RM</span>
-                    <input type="number" value={fees[feeInst]?.[g] ?? 0}
-                      onChange={e => setFeeVal(g, e.target.value)}
-                      style={{ width: 56, background: T.input, border: `1px solid ${T.border2}`, borderRadius: 6, color: T.accent, padding: "4px 6px", fontSize: 13, outline: "none", fontFamily: "inherit", textAlign: "right", fontWeight: 700 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
+      <Card T={T}>
+        {syllabus === "classical"    && classicalSection}
+        {syllabus === "contemporary" && contemporarySection}
+        {syllabus === "both"         && <>{classicalSection}{contemporarySection}</>}
+      </Card>
     </div>
   );
 }

@@ -19,9 +19,11 @@ export default function PayoutPreview({
     const collected          = feeStatus[s.id]?.collected          ?? false;
     const collectedAt        = feeStatus[s.id]?.collectedAt;
     const deferredToMonth    = feeStatus[s.id]?.deferredToMonth    ?? null;
-    const deferredFromMonths = feeStatus[s.id]?.deferredFromMonths ?? [];
+    const deferredFromMonths  = feeStatus[s.id]?.deferredFromMonths  ?? [];
+    const deferredFromAmounts = feeStatus[s.id]?.deferredFromAmounts ?? {};
 
     const deferredGrossExtra = deferredFromMonths.reduce((sum, ym) => {
+      if (ym in deferredFromAmounts) return sum + deferredFromAmounts[ym];
       const [y, m] = ym.split("-").map(Number);
       return sum + calcStudentPayroll(s, y, m - 1, fees, teacher.commissionPct, adminFlatFee, attendanceOverrides, true).gross;
     }, 0);

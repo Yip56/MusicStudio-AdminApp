@@ -189,6 +189,24 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   }
 
   async function saveEdit() {
+    if (editModal._type === "student") {
+      setStudents(prev => prev.map(s => s.id === editModal.id
+        ? { ...s, name: editForm.displayName, instrument: editForm.instrument, grade: editForm.grade, teacherId: editForm.teacherId, attendanceBased: editForm.attendanceBased, schedule: editForm.schedule }
+        : s
+      ));
+      setEditModal(null);
+      setDirty?.(false);
+      return;
+    }
+    if (editModal._type === "teacher_profile") {
+      setTeachers(prev => prev.map(t => t.id === editModal.id
+        ? { ...t, name: editForm.displayName, instruments: editForm.instruments ?? t.instruments, commissionPct: Number(editForm.commissionPct) || t.commissionPct }
+        : t
+      ));
+      setEditModal(null);
+      setDirty?.(false);
+      return;
+    }
     const isInvite = editModal._type === "invite";
     const ref = isInvite
       ? doc(db, "invites", editModal.id)
@@ -203,13 +221,44 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   }
 
   async function deleteAccount() {
+    if (deleteModal._type === "student") {
+      setStudents(prev => prev.filter(s => s.id !== deleteModal.id));
+      setDeleteModal(null);
+      return;
+    }
+    if (deleteModal._type === "teacher_profile") {
+      setTeachers(prev => prev.filter(t => t.id !== deleteModal.id));
+      setDeleteModal(null);
+      return;
+    }
     const isInvite = deleteModal._type === "invite";
     await deleteDoc(doc(db, isInvite ? "invites" : "users", deleteModal.id));
     setDeleteModal(null);
   }
 
   const counts = users.reduce((acc, u) => { acc[u.role] = (acc[u.role] || 0) + 1; return acc; }, {});
-  const allRows = [...users, ...invites].sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
+
+  const studentRows = students.map(s => ({
+    id: s.id, _type: "student",
+    displayName: s.name, email: null, role: "student",
+    teacherId: s.teacherId,
+    instrument: s.instrument, grade: s.grade,
+    attendanceBased: s.attendanceBased, schedule: s.schedule,
+  }));
+
+  const teacherRows = teachers.map(t => ({
+    id: t.id, _type: "teacher_profile",
+    displayName: t.name, email: null, role: "teacher",
+    instruments: t.instruments, commissionPct: t.commissionPct,
+  }));
+
+  // Merge: firebase users with teacher role already show their linked profile via teacherId;
+  // show unlinked teacher profiles as separate rows.
+  const linkedTeacherIds = new Set([...users, ...invites].map(u => u.teacherId).filter(Boolean));
+  const unlinkedTeacherRows = teacherRows.filter(t => !linkedTeacherIds.has(t.id));
+
+  const allRows = [...users, ...invites, ...studentRows, ...unlinkedTeacherRows]
+    .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
 
   if (isMobile) {
     return (
@@ -230,10 +279,11 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       <h2 style={{ fontSize: 24, fontWeight: 700, color: T.text, marginBottom: 18, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>User Management</h2>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 22, flexWrap: "wrap" }}>
-        <Stat T={T} label="Active Users"  value={users.length} />
-        <Stat T={T} label="Teachers"      value={counts.teacher  ?? 0} color="#60a5fa" />
-        <Stat T={T} label="Admins"        value={counts.admin    ?? 0} color="#c084fc" />
-        <Stat T={T} label="Sysadmins"     value={counts.sysadmin ?? 0} color={T.accent} />
+        <Stat T={T} label="Active Users"    value={users.length} />
+        <Stat T={T} label="Students"        value={students.length} color="#4ade80" />
+        <Stat T={T} label="Teachers"        value={counts.teacher  ?? 0} color="#60a5fa" />
+        <Stat T={T} label="Admins"          value={counts.admin    ?? 0} color="#c084fc" />
+        <Stat T={T} label="Sysadmins"       value={counts.sysadmin ?? 0} color={T.accent} />
         <Stat T={T} label="Pending Invites" value={invites.length} color="#94a3b8" />
       </div>
 
@@ -283,11 +333,6 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                   Note: not a @gmail.com address — Google Sign-In requires a Gmail account.
                 </div>
               )}
-              <Sel T={T} label="Link Teacher Profile (optional)" value={form.linkedTeacherId}
-                onChange={e => { markDirty(); setForm(f => ({ ...f, linkedTeacherId: e.target.value })); }}>
-                <option value="">— None —</option>
-                {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </Sel>
             </>
           )}
 
@@ -402,15 +447,21 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       {/* ── Users + Invites table ────────────────────────────────────────────── */}
       <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <THead T={T} cols={["User", "Email", "Role", "Status", "Linked Teacher", "Actions"]} />
+          <THead T={T} cols={["User", "Email / Details", "Role", "Status", "Actions"]} />
           <tbody>
             {allRows.map((entry) => {
-              const tc       = teachers.find(t => t.id === entry.teacherId);
-              const rc       = ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim };
-              const isPending = entry._type === "invite";
+              const rc              = ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim };
+              const isPending       = entry._type === "invite";
+              const isStudent       = entry._type === "student";
+              const isTeacherProfile = entry._type === "teacher_profile";
               const isTransferSource = transferTarget?.id === entry.id;
+
+              let emailCell = entry.email ?? "—";
+              if (isStudent)        emailCell = `${entry.instrument} · ${entry.grade}`;
+              if (isTeacherProfile) emailCell = `${entry.instruments?.join(", ") ?? "—"} · ${entry.commissionPct}% comm`;
+
               return (
-                <tr key={entry.id}
+                <tr key={`${entry._type}-${entry.id}`}
                   onMouseEnter={e => { if (!isTransferSource) e.currentTarget.style.background = T.hover; }}
                   onMouseLeave={e => { e.currentTarget.style.background = isTransferSource ? "#4ade8010" : "transparent"; }}
                   style={{
@@ -419,33 +470,36 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                   }}>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                      {!isPending && entry.photoURL
+                      {!isPending && !isStudent && !isTeacherProfile && entry.photoURL
                         ? <img src={entry.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0 }} />
                         : <Avatar name={entry.displayName || entry.email || "?"} size={30} />
                       }
                       <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{entry.displayName}</span>
                     </div>
                   </td>
-                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{entry.email}</td>
+                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{emailCell}</td>
                   <td style={{ padding: "11px 14px" }}>
                     <Badge label={entry.role} color={rc.color} bg={rc.bg} />
                   </td>
                   <td style={{ padding: "11px 14px" }}>
-                    {isPending
-                      ? <Badge label="Pending Sign-in" color="#94a3b8" bg="#1e293b" />
-                      : <Badge label="Active" color="#4ade80" bg="#052e16" />
+                    {isStudent
+                      ? <Badge label="Enrolled"       color="#4ade80" bg="#052e16" />
+                      : isTeacherProfile
+                        ? <Badge label="Profile Only"   color="#60a5fa" bg="#60a5fa18" />
+                        : isPending
+                          ? <Badge label="Pending Sign-in" color="#94a3b8" bg="#1e293b" />
+                          : <Badge label="Active"       color="#4ade80" bg="#052e16" />
                     }
                   </td>
-                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{tc?.name ?? "—"}</td>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", gap: 6 }}>
                       <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }}
                         onClick={() => { setEditModal(entry); setEditForm({ ...entry }); }}>Edit</Btn>
-                      {(isPending || entry.id !== currentUser.uid) && (
+                      {!isStudent && !isTeacherProfile && (isPending || entry.id !== currentUser.uid) && (
                         <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11, color: "#4ade80", borderColor: "#4ade8030" }}
                           onClick={() => startTransfer(entry)}>Transfer</Btn>
                       )}
-                      {(isPending || entry.id !== currentUser.uid) && (
+                      {(isStudent || isTeacherProfile || isPending || entry.id !== currentUser.uid) && (
                         <Btn T={T} variant="danger" style={{ padding: "4px 9px", fontSize: 11 }}
                           onClick={() => setDeleteModal(entry)}>Delete</Btn>
                       )}
@@ -488,7 +542,103 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       )}
 
       {/* ── Edit modal ───────────────────────────────────────────────────────── */}
-      {editModal && (
+      {editModal && editModal._type === "teacher_profile" && (
+        <Modal T={T} title="Edit Teacher" onClose={() => { setEditModal(null); setDirty?.(false); }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Inp T={T} label="Full Name" value={editForm.displayName ?? ""}
+              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, displayName: e.target.value })); }} />
+            <div>
+              <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Instruments</div>
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                {INSTRUMENTS.map(inst => {
+                  const active = editForm.instruments?.includes(inst);
+                  return (
+                    <button key={inst} onClick={() => {
+                      setDirty?.(true);
+                      setEditForm(f => {
+                        const has = f.instruments?.includes(inst);
+                        return { ...f, instruments: has ? f.instruments.filter(i => i !== inst) : [...(f.instruments ?? []), inst] };
+                      });
+                    }} style={{
+                      padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                      fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+                      background: active ? T.accent + "22" : T.dim,
+                      color: active ? T.accent : T.muted,
+                      outline: active ? `1px solid ${T.accent}55` : "none",
+                    }}>{inst}</button>
+                  );
+                })}
+              </div>
+            </div>
+            <Inp T={T} label="Commission %" type="number" min={0} max={100}
+              value={editForm.commissionPct ?? 60}
+              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, commissionPct: e.target.value })); }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+              <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
+              <Btn T={T} onClick={saveEdit}>Save Changes</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editModal && editModal._type === "student" && (
+        <Modal T={T} title="Edit Student" onClose={() => { setEditModal(null); setDirty?.(false); }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Inp T={T} label="Full Name" value={editForm.displayName ?? ""}
+              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, displayName: e.target.value })); }} />
+            <div style={{ display: "flex", gap: 11 }}>
+              <Sel T={T} label="Instrument" value={editForm.instrument ?? "Piano"}
+                onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, instrument: e.target.value })); }}>
+                {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
+              </Sel>
+              <Sel T={T} label="Grade" value={editForm.grade ?? "No Grade"}
+                onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, grade: e.target.value })); }}>
+                {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
+              </Sel>
+            </div>
+            <Sel T={T} label="Teacher" value={editForm.teacherId ?? ""}
+              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, teacherId: e.target.value })); }}>
+              <option value="">— Select teacher —</option>
+              {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </Sel>
+            <div style={{ background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 10, padding: 14 }}>
+              <SectionTitle T={T}>Recurring Class Schedule</SectionTitle>
+              <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+                <Sel T={T} label="Day of Week" value={editForm.schedule?.dayOfWeek ?? 6}
+                  onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, dayOfWeek: Number(e.target.value) } })); }}>
+                  {DAYS_OF_WEEK.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                </Sel>
+                <div style={{ display: "flex", gap: 11 }}>
+                  <Sel T={T} label="Start Time" value={editForm.schedule?.startTime ?? "09:00"}
+                    onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, startTime: e.target.value } })); }}>
+                    {HOURS.map(h => <option key={h}>{h}</option>)}
+                  </Sel>
+                  <Sel T={T} label="End Time" value={editForm.schedule?.endTime ?? "10:00"}
+                    onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, endTime: e.target.value } })); }}>
+                    {HOURS.map(h => <option key={h}>{h}</option>)}
+                  </Sel>
+                </div>
+                <Sel T={T} label="Room" value={editForm.schedule?.roomId ?? ""}
+                  onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, roomId: e.target.value } })); }}>
+                  <option value="">— Select room —</option>
+                  {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.type})</option>)}
+                </Sel>
+              </div>
+            </div>
+            <Checkbox T={T}
+              label="Attendance-based commission (fee prorated by classes attended)"
+              checked={editForm.attendanceBased ?? false}
+              onChange={() => { setDirty?.(true); setEditForm(f => ({ ...f, attendanceBased: !f.attendanceBased })); }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+              <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
+              <Btn T={T} onClick={saveEdit}>Save Changes</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editModal && editModal._type !== "student" && (
         <Modal T={T} title={editModal._type === "invite" ? "Edit Invite" : "Edit User"} onClose={() => { setEditModal(null); setDirty?.(false); }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Inp T={T} label="Display Name" value={editForm.displayName ?? ""}
@@ -503,13 +653,6 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
               <option value="admin">Admin</option>
               <option value="sysadmin">Sysadmin</option>
             </Sel>
-            <Sel T={T}
-              label={editForm.role === "teacher" ? "Linked Teacher Profile" : "Link Teacher Profile (optional)"}
-              value={editForm.teacherId ?? ""}
-              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, teacherId: e.target.value })); }}>
-              <option value="">— None —</option>
-              {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </Sel>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
               <Btn T={T} onClick={saveEdit}>Save Changes</Btn>
@@ -520,24 +663,35 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
 
       {/* ── Delete modal ─────────────────────────────────────────────────────── */}
       {deleteModal && (
-        <Modal T={T} title={deleteModal._type === "invite" ? "Cancel Invite" : "Delete Account"} onClose={() => setDeleteModal(null)}>
+        <Modal T={T}
+          title={
+            deleteModal._type === "invite"          ? "Cancel Invite"   :
+            deleteModal._type === "student"         ? "Remove Student"  :
+            deleteModal._type === "teacher_profile" ? "Remove Teacher"  : "Delete Account"
+          }
+          onClose={() => setDeleteModal(null)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div style={{ background: "#2d0a0a", border: "1px solid #f8717140", borderRadius: 10, padding: "13px 16px" }}>
               <div style={{ fontSize: 13, color: "#f87171", fontWeight: 600, marginBottom: 6 }}>
-                {deleteModal._type === "invite" ? "This will cancel the pending invite." : "This will permanently remove their access."}
+                {deleteModal._type === "invite"          ? "This will cancel the pending invite."          :
+                 deleteModal._type === "student"         ? "This will permanently remove this student."    :
+                 deleteModal._type === "teacher_profile" ? "This will permanently remove this teacher."    :
+                                                          "This will permanently remove their access."}
               </div>
               <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
                 <strong style={{ color: T.text }}>{deleteModal.displayName || deleteModal.email}</strong>
-                {deleteModal._type === "invite"
-                  ? " will no longer be able to activate their account by signing in."
-                  : " will be immediately locked out of StudioOS. Their Google account is not affected."
-                }
+                {deleteModal._type === "invite"          ? " will no longer be able to activate their account by signing in."  :
+                 deleteModal._type === "student"         ? " will be removed from all schedules and payroll."                  :
+                 deleteModal._type === "teacher_profile" ? " will be removed from payroll. Their students will need reassigning." :
+                                                          " will be immediately locked out of StudioOS. Their Google account is not affected."}
               </div>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => setDeleteModal(null)}>Cancel</Btn>
               <Btn T={T} variant="danger" onClick={deleteAccount}>
-                {deleteModal._type === "invite" ? "Cancel Invite" : "Delete Account"}
+                {deleteModal._type === "invite"          ? "Cancel Invite"  :
+                 deleteModal._type === "student"         ? "Remove Student" :
+                 deleteModal._type === "teacher_profile" ? "Remove Teacher" : "Delete Account"}
               </Btn>
             </div>
           </div>

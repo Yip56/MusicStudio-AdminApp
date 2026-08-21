@@ -72,12 +72,12 @@ export function getScheduledCountForMonth(student, year, month) {
 }
 
 /**
- * Count how many times a student attended (status=present|late) in a month.
+ * Count how many times a student attended (status=present) in a month.
  */
 export function getAttendedCountForMonth(studentId, year, month, attendanceOverrides) {
   return attendanceOverrides.filter(a => {
     if (a.studentId !== studentId) return false;
-    if (a.status !== "present" && a.status !== "late") return false;
+    if (a.status !== "present") return false;
     const dt = new Date(a.date);
     return dt.getFullYear() === year && dt.getMonth() === month;
   }).length;
@@ -101,13 +101,15 @@ export function calcStudentPayroll(student, year, month, fees, commissionPct, ad
 
   const zero = { fee, scheduled, attended, gross: 0, teacherCut: 0, adminCut: 0, flatDeducted: 0, afterFlat: 0 };
 
-  if (!collected) return zero;
-  if (student.attendanceBased && attended === 0) return zero;
+  // ownGross: this month's fee, subject to collection + attendance rules
+  let ownGross = 0;
+  if (collected && !(student.attendanceBased && attended === 0)) {
+    ownGross = student.attendanceBased
+      ? (scheduled > 0 ? (attended / scheduled) * fee : 0)
+      : fee;
+  }
 
-  const ownGross = student.attendanceBased
-    ? (scheduled > 0 ? (attended / scheduled) * fee : 0)
-    : fee;
-
+  // deferredGrossExtra bypasses collection/attendance rules — it was earned in a prior month
   const gross = ownGross + deferredGrossExtra;
 
   if (gross <= 0) return zero;
