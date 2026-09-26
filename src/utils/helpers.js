@@ -94,8 +94,27 @@ export function getAttendedCountForMonth(studentId, year, month, attendanceOverr
  * - flatDeducted = the actual flat fee deducted (≤ gross)
  * - deferredGrossExtra = pre-computed gross from deferred months to combine into this month
  */
+/**
+ * Derive the lesson length key ("30" | "45" | "60") from a student's schedule times.
+ */
+export function getLessonDurationKey(schedule) {
+  if (!schedule) return "60";
+  // Prefer the explicit duration field; fall back to deriving from start/end times
+  if (schedule.duration === "30" || schedule.duration === "45" || schedule.duration === "60") return schedule.duration;
+  const [sh, sm] = schedule.startTime.split(":").map(Number);
+  const [eh, em] = schedule.endTime.split(":").map(Number);
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins <= 37) return "30";
+  if (mins <= 52) return "45";
+  return "60";
+}
+
 export function calcStudentPayroll(student, year, month, fees, commissionPct, adminFlatFee, attendanceOverrides, collected = false, deferredGrossExtra = 0) {
-  const fee       = fees[student.instrument]?.[student.grade] ?? 0;
+  const rawFee    = fees[student.instrument]?.[student.grade] ?? 0;
+  // Support both the new { "30": N, "45": N, "60": N } shape and legacy flat numbers
+  const fee       = typeof rawFee === "object"
+    ? (rawFee[getLessonDurationKey(student.schedule)] ?? 0)
+    : rawFee;
   const scheduled = getScheduledCountForMonth(student, year, month);
   const attended  = getAttendedCountForMonth(student.id, year, month, attendanceOverrides);
 

@@ -3,10 +3,22 @@ import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, THead, Checkbox, SectionTitl
 import { GRADE_LABELS, INSTRUMENTS, DAYS_OF_WEEK, HOURS } from "../data/seed.js";
 import { uid } from "../utils/helpers.js";
 
+const DURATIONS = [
+  { value: "30", label: "30 min" },
+  { value: "45", label: "45 min" },
+  { value: "60", label: "60 min" },
+];
+
+function addMinutes(timeStr, mins) {
+  const [h, m] = timeStr.split(":").map(Number);
+  const total = h * 60 + m + Number(mins);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 const BLANK = {
   name: "", instrument: "Piano", grade: "No Grade", teacherId: "",
   attendanceBased: false,
-  schedule: { dayOfWeek: 6, startTime: "09:00", endTime: "10:00", roomId: "" }
+  schedule: { dayOfWeek: 6, startTime: "09:00", endTime: "10:00", duration: "60", roomId: "" }
 };
 
 export default function Students({ students, setStudents, teachers, rooms, T, currentUser, sendGradeRequest, isMobile, setDirty }) {
@@ -47,7 +59,20 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
 
   function remove(id) { if (confirm("Remove this student?")) setStudents(p => p.filter(s => s.id !== id)); }
 
-  function setSched(key, val) { setDirty?.(true); setForm(f => ({ ...f, schedule: { ...f.schedule, [key]: val } })); }
+  function setSched(key, val) {
+    setDirty?.(true);
+    setForm(f => {
+      const next = { ...f.schedule, [key]: val };
+      // Keep endTime in sync whenever startTime or duration changes
+      if (key === "startTime" || key === "duration") {
+        next.endTime = addMinutes(
+          key === "startTime" ? val : next.startTime,
+          key === "duration"  ? val : next.duration,
+        );
+      }
+      return { ...f, schedule: next };
+    });
+  }
 
   function openGradeRequest(student) {
     setGradeForm({ requestedGrade: student.grade, reason: "" });
@@ -94,9 +119,12 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
               <Sel T={T} label="Start Time" value={form.schedule.startTime} onChange={e => setSched("startTime", e.target.value)}>
                 {HOURS.map(h => <option key={h}>{h}</option>)}
               </Sel>
-              <Sel T={T} label="End Time" value={form.schedule.endTime} onChange={e => setSched("endTime", e.target.value)}>
-                {HOURS.map(h => <option key={h}>{h}</option>)}
+              <Sel T={T} label="Duration" value={form.schedule.duration ?? "60"} onChange={e => setSched("duration", e.target.value)}>
+                {DURATIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
               </Sel>
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: -4 }}>
+              End time: <span style={{ color: T.text }}>{form.schedule.endTime}</span>
             </div>
             <Sel T={T} label="Room" value={form.schedule.roomId} onChange={e => setSched("roomId", e.target.value)}>
               <option value="">— Select room —</option>
@@ -198,7 +226,12 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
                     )}
                     <div style={{ fontSize: 12, color: T.textSub }}>
                       <span style={{ color: T.muted }}>Schedule: </span>
-                      {DAYS_OF_WEEK[s.schedule?.dayOfWeek ?? 0]}, {s.schedule?.startTime}–{s.schedule?.endTime}
+                      {DAYS_OF_WEEK[s.schedule?.dayOfWeek ?? 0]}, {s.schedule?.startTime}
+                      {s.schedule?.duration && (
+                        <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 600, color: T.accent, background: T.accent + "18", border: `0.6px solid ${T.accent}40`, borderRadius: 4, padding: "1px 5px" }}>
+                          {s.schedule.duration} min
+                        </span>
+                      )}
                     </div>
                     {room && (
                       <div style={{ fontSize: 12, color: T.textSub }}>
@@ -285,7 +318,14 @@ export default function Students({ students, setStudents, teachers, rooms, T, cu
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{teacher?.name ?? "—"}</td>
                   )}
                   <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{DAYS_OF_WEEK[s.schedule?.dayOfWeek ?? 0]}</td>
-                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{s.schedule?.startTime} – {s.schedule?.endTime}</td>
+                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>
+                    {s.schedule?.startTime}
+                    {s.schedule?.duration && (
+                      <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: T.accent, background: T.accent + "18", border: `0.6px solid ${T.accent}40`, borderRadius: 4, padding: "1px 5px" }}>
+                        {s.schedule.duration} min
+                      </span>
+                    )}
+                  </td>
                   <td style={{ padding: "11px 14px" }}>
                     {s.attendanceBased
                       ? <Badge label="Att. Based" color="#60a5fa" bg="#0c1a2e" />

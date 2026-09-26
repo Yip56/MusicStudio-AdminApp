@@ -38,22 +38,33 @@ export const SEED_ROOMS = [
   { id: "r4", name: "Drum Room",    type: "Drum",   color: "#fb923c" },
 ];
 
+// Pricing formula: 30-min is the base (160 for Beginner, +15 per classical grade).
+// 45-min = 30-min × 1.5 (rounded to nearest RM 5). 60-min = 30-min × 2. All instruments same schedule.
+function classicalRow(base30) {
+  return { "30": base30, "45": Math.round(base30 * 1.5 / 5) * 5, "60": base30 * 2 };
+}
+const CLASSICAL_ROWS = {
+  "Beginner": classicalRow(160), "Grade 1": classicalRow(175), "Grade 2": classicalRow(190),
+  "Grade 3":  classicalRow(205), "Grade 4": classicalRow(220), "Grade 5": classicalRow(235),
+  "Grade 6":  classicalRow(250), "Grade 7": classicalRow(265), "Grade 8": classicalRow(280),
+};
+
 export const SEED_FEES = {
-  Piano:  { "Beginner":160,"Grade 1":175,"Grade 2":190,"Grade 3":205,"Grade 4":220,"Grade 5":235,"Grade 6":250,"Grade 7":265,"Grade 8":280 },
-  Drum:   { "Beginner":160,"Grade 1":170,"Grade 2":185,"Grade 3":200,"Grade 4":215,"Grade 5":230,"Grade 6":245,"Grade 7":260,"Grade 8":275 },
-  Guitar: { "Beginner":150,"Grade 1":165,"Grade 2":180,"Grade 3":195,"Grade 4":210,"Grade 5":225,"Grade 6":240,"Grade 7":255,"Grade 8":270 },
-  Violin: { "Beginner":170,"Grade 1":185,"Grade 2":200,"Grade 3":215,"Grade 4":230,"Grade 5":245,"Grade 6":260,"Grade 7":275,"Grade 8":290 },
-  Vocals: { "Beginner":140,"Grade 1":155,"Grade 2":170,"Grade 3":185,"Grade 4":200,"Grade 5":215,"Grade 6":230,"Grade 7":245,"Grade 8":260 },
-  Flute:  { "Beginner":150,"Grade 1":165,"Grade 2":180,"Grade 3":195,"Grade 4":210,"Grade 5":225,"Grade 6":240,"Grade 7":255,"Grade 8":270 },
+  Piano:  { ...CLASSICAL_ROWS },
+  Drum:   { ...CLASSICAL_ROWS },
+  Guitar: { ...CLASSICAL_ROWS },
+  Violin: { ...CLASSICAL_ROWS },
+  Vocals: { ...CLASSICAL_ROWS },
+  Flute:  { ...CLASSICAL_ROWS },
 };
 
 export const SEED_CONTEMPORARY_FEES = {
-  Piano:  { "Beginner":160,"Intermediate":200,"Advanced":250 },
-  Drum:   { "Beginner":160,"Intermediate":200,"Advanced":250 },
-  Guitar: { "Beginner":160,"Intermediate":200,"Advanced":250 },
-  Violin: { "Beginner":160,"Intermediate":200,"Advanced":250 },
-  Vocals: { "Beginner":160,"Intermediate":200,"Advanced":250 },
-  Flute:  { "Beginner":160,"Intermediate":200,"Advanced":250 },
+  Piano:  { "Beginner": classicalRow(160), "Intermediate": classicalRow(200), "Advanced": classicalRow(250) },
+  Drum:   { "Beginner": classicalRow(160), "Intermediate": classicalRow(200), "Advanced": classicalRow(250) },
+  Guitar: { "Beginner": classicalRow(160), "Intermediate": classicalRow(200), "Advanced": classicalRow(250) },
+  Violin: { "Beginner": classicalRow(160), "Intermediate": classicalRow(200), "Advanced": classicalRow(250) },
+  Vocals: { "Beginner": classicalRow(160), "Intermediate": classicalRow(200), "Advanced": classicalRow(250) },
+  Flute:  { "Beginner": classicalRow(160), "Intermediate": classicalRow(200), "Advanced": classicalRow(250) },
 };
 
 export const SEED_TEACHERS = [

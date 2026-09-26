@@ -43,6 +43,8 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   const [deleteModal,     setDeleteModal]     = useState(null);
   const [transferTarget,  setTransferTarget]  = useState(null);
   const [transferConfirm, setTransferConfirm] = useState(null);
+  const [roleFilter,      setRoleFilter]      = useState("all");
+  const [search,          setSearch]          = useState("");
 
   const formCardRef = useRef(null);
 
@@ -260,6 +262,30 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   const allRows = [...users, ...invites, ...studentRows, ...unlinkedTeacherRows]
     .sort((a, b) => (a.displayName || "").localeCompare(b.displayName || ""));
 
+  const FILTERS = [
+    { key: "all",      label: "All",      count: allRows.length },
+    { key: "student",  label: "Students", count: allRows.filter(e => e._type === "student").length },
+    { key: "teacher",  label: "Teachers", count: allRows.filter(e => e.role === "teacher" || e._type === "teacher_profile").length },
+    { key: "admin",    label: "Admins",   count: allRows.filter(e => e.role === "admin").length },
+    { key: "sysadmin", label: "Sysadmin", count: allRows.filter(e => e.role === "sysadmin").length },
+    { key: "pending",  label: "Pending",  count: invites.length },
+  ];
+
+  const displayedRows = allRows
+    .filter(e => {
+      if (roleFilter === "student")  return e._type === "student";
+      if (roleFilter === "teacher")  return e.role === "teacher" || e._type === "teacher_profile";
+      if (roleFilter === "admin")    return e.role === "admin";
+      if (roleFilter === "sysadmin") return e.role === "sysadmin";
+      if (roleFilter === "pending")  return e._type === "invite";
+      return true;
+    })
+    .filter(e => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (e.displayName ?? "").toLowerCase().includes(q) || (e.email ?? "").toLowerCase().includes(q);
+    });
+
   if (isMobile) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 20px", textAlign: "center" }}>
@@ -444,12 +470,44 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
         </div>
       </Card>
 
+      {/* ── Filter bar ──────────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", flex: 1 }}>
+          {FILTERS.map(f => {
+            const active = roleFilter === f.key;
+            return (
+              <button key={f.key} onClick={() => setRoleFilter(f.key)} style={{
+                padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer",
+                fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+                background: active ? T.accent + "22" : T.dim,
+                color: active ? T.accent : T.muted,
+                outline: active ? `1px solid ${T.accent}55` : "none",
+                display: "inline-flex", alignItems: "center", gap: 5,
+              }}>
+                {f.label}
+                <span style={{
+                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
+                  background: active ? T.accent + "33" : T.border2,
+                  color: active ? T.accent : T.muted,
+                  borderRadius: 99, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px",
+                }}>{f.count}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ position: "relative" }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, pointerEvents: "none", color: T.muted }}>🔍</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email…"
+            style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "7px 12px 7px 32px", fontSize: 12, outline: "none", fontFamily: "inherit", width: 200 }} />
+        </div>
+      </div>
+
       {/* ── Users + Invites table ────────────────────────────────────────────── */}
       <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={["User", "Email / Details", "Role", "Status", "Actions"]} />
           <tbody>
-            {allRows.map((entry) => {
+            {displayedRows.map((entry) => {
               const rc              = ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim };
               const isPending       = entry._type === "invite";
               const isStudent       = entry._type === "student";

@@ -5,7 +5,8 @@
 - **Purpose:** Music studio admin panel — manage students, teachers, rooms, payroll, attendance, scheduling
 - **Stack:** React 18, Vite 5, pure CSS-in-JS (no external UI library)
 - **Backend:** Firebase Auth (Google Sign-In) + Firestore (rules deployed, project: `ark-music-portal`)
-- **In-memory state:** students, teachers, rooms, fees, attendance, one-off sessions (not yet persisted to Firestore — only `users` and `notifications` collections are in Firestore)
+- **In-memory state:** students, teachers, rooms, attendance, one-off sessions (not yet persisted to Firestore)
+- **Firestore-persisted state:** `users`, `notifications`, `invites`, `payroll_months`, `class_deferrals`, **`fees`** (classical + contemporary fee schedules)
 
 ---
 
@@ -110,6 +111,44 @@ When the invited person signs in with Google for the first time, `useAuth.js` qu
 | `createdAt` | timestamp | |
 | `resolvedAt` | timestamp \| null | |
 | `resolvedBy` | string \| null | UID of resolver |
+
+### `fees/classical` and `fees/contemporary`
+
+Fee schedule documents — one per syllabus type. Each document has the same shape:
+
+```
+{
+  "<Instrument>": {
+    "<Level>": { "30": <RM>, "45": <RM>, "60": <RM> },
+    ...
+  },
+  ...
+}
+```
+
+- **Instruments:** Piano, Drum, Guitar, Violin, Vocals, Flute
+- **Classical levels:** Beginner, Grade 1 – Grade 8 (9 levels)
+- **Contemporary levels:** Beginner, Intermediate, Advanced (3 levels)
+- **Prices:** RM per month for weekly lessons at the given session length (30/45/60 min)
+
+Edited via **Grades & Fees** view → Save Changes button. Firestore rules: authenticated read, admin/sysadmin write.
+
+**To add a new instrument:** Add it to `INSTRUMENTS` in `src/data/seed.js`, add default fee rows to `SEED_FEES` and `SEED_CONTEMPORARY_FEES`, then open Grades & Fees and save. The website fees page reads instruments dynamically from the Cloud Function response — no website changes needed.
+
+---
+
+## Cloud Function — `getPublicFees`
+
+- **Source:** `functions/index.js`
+- **Region:** `asia-southeast1` (same as Firestore database)
+- **Runtime:** Node 20, firebase-functions v6 (v2 HTTPS)
+- **Purpose:** Serves the full fee schedule as JSON to the public lead-gen website. Uses Firebase Admin SDK server-side — Firestore client security rules are bypassed.
+- **Response shape:** `{ classical: { Piano: { Beginner: { "30": N, "45": N, "60": N }, ... }, ... }, contemporary: { ... } }`
+- **Caching:** `Cache-Control: public, max-age=600` (10 minutes) — reduces Firestore reads on page load
+- **Auth:** None required (public endpoint). CORS `*` allowed.
+- **Deploy:** `cd studio-os && firebase deploy --only functions`
+- **URL:** Shown in terminal after first deploy. Copy it into the website's `VITE_FEES_API_URL` env var.
+  Find it later with: `firebase functions:list`
 
 ---
 

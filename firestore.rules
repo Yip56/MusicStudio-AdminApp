@@ -50,5 +50,13 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow delete: if request.auth != null;
     }
+
+    // Fee schedule — readable by any authenticated user; writable only by admin/sysadmin.
+    // Public reads are served exclusively through the getPublicFees Cloud Function (admin SDK),
+    // which bypasses these rules entirely — no unauthenticated client access is granted here.
+    match /fees/{docId} {
+      allow read:  if request.auth != null;
+      allow write: if isAdminOrAbove();
+    }
   }
 }

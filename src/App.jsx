@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { useTheme } from "./hooks/useTheme.js";
 import { useAuth } from "./hooks/useAuth.js";
@@ -65,6 +65,27 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", h);
   }, [dirty]);
 
+  // Load fees from Firestore once authenticated; fall back to seed defaults on first run
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    async function loadFees() {
+      try {
+        const [cs, co] = await Promise.all([
+          getDoc(doc(db, "fees", "classical")),
+          getDoc(doc(db, "fees", "contemporary")),
+        ]);
+        if (cancelled) return;
+        if (cs.exists()) setFees(cs.data());
+        if (co.exists()) setContemporaryFees(co.data());
+      } catch {
+        // keep seed defaults on Firestore read error
+      }
+    }
+    loadFees();
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
   function navigateTo(id) {
     if (dirty) { setPendingNav(id); return; }
     setView(id);
@@ -95,6 +116,14 @@ export default function App() {
   };
 
   // ── Firestore write helpers ──────────────────────────────────────────────────
+  async function saveFees() {
+    await Promise.all([
+      setDoc(doc(db, "fees", "classical"),    fees),
+      setDoc(doc(db, "fees", "contemporary"), contemporaryFees),
+    ]);
+    setDirty(false);
+  }
+
   async function sendClashRequest(data) {
     await addDoc(collection(db, "notifications"), {
       ...data,
@@ -143,6 +172,7 @@ export default function App() {
     adminFlatFee, setAdminFlatFee,
     oneOffSessions, setOneOffSessions,
     deferrals, addDeferral, removeDeferral, updateDeferralStatus,
+    saveFees,
     T,
     currentUser,
     isMobile,
@@ -197,13 +227,14 @@ export default function App() {
           const room        = rooms.find(r => r.id === n.requestedRoomId);
           const isClash     = n.type === "clash_request";
           const isGrade     = n.type === "grade_request";
+          const isTrial     = n.type === "trial_booking";
           return (
             <div key={n.id} style={{ background: T.bg, border: `1px solid ${T.border2}`, borderRadius: 12, padding: "13px 14px" }}>
               <div style={{ marginBottom: 9 }}>
                 <Badge
-                  label={isClash ? "Room Clash Request" : "Grade Update Request"}
-                  color={isClash ? "#fb923c" : "#60a5fa"}
-                  bg={isClash ? "#451a03" : "#0c1a2e"}
+                  label={isClash ? "Room Clash Request" : isGrade ? "Grade Update Request" : "Free Trial Booking"}
+                  color={isClash ? "#fb923c" : isGrade ? "#60a5fa" : "#4ade80"}
+                  bg={isClash ? "#451a03" : isGrade ? "#0c1a2e" : "#052e16"}
                 />
               </div>
               <div style={{ fontSize: 12, color: T.text, lineHeight: 1.7, marginBottom: 11 }}>
@@ -223,16 +254,37 @@ export default function App() {
                     Reason: {n.reason}
                   </>
                 )}
+                {isTrial && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div><strong>{n.name}</strong> wants to book a free trial.</div>
+                    {n.email      && <div style={{ color: T.muted }}>✉ {n.email}</div>}
+                    {n.phone      && <div style={{ color: T.muted }}>📞 {n.phone}</div>}
+                    {n.program    && <div style={{ color: T.muted }}>Program: {n.program}</div>}
+                    {n.instrument && <div style={{ color: T.muted }}>Instrument: {n.instrument}</div>}
+                    {n.experience && <div style={{ color: T.muted }}>Level: {n.experience}</div>}
+                    {n.ageGroup   && <div style={{ color: T.muted }}>Age: {n.ageGroup}</div>}
+                    {n.message    && <div style={{ color: T.muted, fontStyle: "italic", marginTop: 4 }}>"{n.message}"</div>}
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", gap: 7 }}>
-                <button onClick={() => handleResolve(n, "approved")} style={{
-                  flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
-                  fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: "#052e16", color: "#4ade80"
-                }}>Approve</button>
-                <button onClick={() => handleResolve(n, "rejected")} style={{
-                  flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
-                  fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: "#2d0a0a", color: "#f87171"
-                }}>Reject</button>
+                {isTrial ? (
+                  <button onClick={() => handleResolve(n, "approved")} style={{
+                    flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: "#052e16", color: "#4ade80"
+                  }}>Mark as Contacted</button>
+                ) : (
+                  <>
+                    <button onClick={() => handleResolve(n, "approved")} style={{
+                      flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                      fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: "#052e16", color: "#4ade80"
+                    }}>Approve</button>
+                    <button onClick={() => handleResolve(n, "rejected")} style={{
+                      flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                      fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: "#2d0a0a", color: "#f87171"
+                    }}>Reject</button>
+                  </>
+                )}
               </div>
             </div>
           );

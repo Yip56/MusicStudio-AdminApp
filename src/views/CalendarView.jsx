@@ -4,21 +4,21 @@ import { getMergedSessionsForDate, getRecurringDates, fmtDate, uid, timesOverlap
 import { TODAY, STATUS_META, HOURS } from "../data/seed.js";
 
 // ─── Session Card — click to open attendance popup ────────────────────────────
-function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, T, currentUser }) {
+function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, onDeleteSession, T, currentUser }) {
   const defaultDefer = (() => {
     const d = new Date(sess.date + "T00:00:00");
     d.setDate(d.getDate() + 7);
     return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
   })();
 
-  const [modalOpen,   setModalOpen]   = useState(false);
-  const [showDefer,   setShowDefer]   = useState(false);
-  const [deferDirty,  setDeferDirty]  = useState(false);
-  const [makeupYear,  setMakeupYear]  = useState(defaultDefer.year);
-  const [makeupMonth, setMakeupMonth] = useState(defaultDefer.month);
-  const [makeupDay,   setMakeupDay]   = useState(defaultDefer.day);
-  const [makeupStart, setMakeupStart] = useState("");
-  const [makeupEnd,   setMakeupEnd]   = useState("");
+  const [modalOpen,     setModalOpen]     = useState(false);
+  const [showDefer,     setShowDefer]     = useState(false);
+  const [makeupYear,    setMakeupYear]    = useState(defaultDefer.year);
+  const [makeupMonth,   setMakeupMonth]   = useState(defaultDefer.month);
+  const [makeupDay,     setMakeupDay]     = useState(defaultDefer.day);
+  const [makeupStart,   setMakeupStart]   = useState("");
+  const [makeupEnd,     setMakeupEnd]     = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const sm        = STATUS_META[sess.status] ?? { color: T.muted, bg: T.dim, label: "—" };
   const roomColor = room?.color ?? "#888";
@@ -28,10 +28,9 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
   const canMarkAttend = isOwnSession && currentUser?.role !== undefined;
 
   function tryClose() {
-    if (deferDirty && !window.confirm("You have unsaved changes in the defer form. Close without scheduling?")) return;
     setModalOpen(false);
     setShowDefer(false);
-    setDeferDirty(false);
+    setConfirmDelete(false);
   }
 
   function handleStatusBtn(key) {
@@ -44,7 +43,6 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
   function handleSchedule() {
     const makeupDate = `${makeupYear}-${String(makeupMonth).padStart(2,"0")}-${String(makeupDay).padStart(2,"0")}`;
     onScheduleMakeup(sess, makeupDate, makeupStart || null, makeupEnd || null);
-    setDeferDirty(false);
     setModalOpen(false);
     setShowDefer(false);
   }
@@ -153,6 +151,43 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
               >Remove Deferral</button>
             )}
 
+            {/* Delete Session — one-off sessions only, admin/sysadmin only */}
+            {sess.isOneOff && (currentUser?.role === "admin" || currentUser?.role === "sysadmin") && (
+              confirmDelete ? (
+                <div style={{ background:"rgba(255,90,101,0.08)", border:"0.6px solid rgba(255,90,101,0.35)", borderRadius:7, padding:"10px 12px", marginBottom:10 }}>
+                  <div style={{ fontSize:12, color:"#FF5A65", fontWeight:600, marginBottom:8 }}>Delete this session?</div>
+                  <div style={{ display:"flex", gap:7 }}>
+                    <button
+                      onClick={() => { onDeleteSession(sess); setModalOpen(false); setConfirmDelete(false); }}
+                      style={{
+                        flex:1, padding:"8px 0", borderRadius:6, border:"none",
+                        background:"#FF5A65", color:"#fff",
+                        cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                      }}
+                    >Yes, Delete</button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      style={{
+                        flex:1, padding:"8px 0", borderRadius:6,
+                        border:`0.6px solid ${T.border2}`, background:T.dim, color:T.muted,
+                        cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                      }}
+                    >Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  style={{
+                    width:"100%", padding:"9px 0", borderRadius:6, marginBottom:10,
+                    border:"0.6px solid rgba(255,90,101,0.35)",
+                    background:"rgba(255,90,101,0.06)", color:"#FF5A65",
+                    cursor:"pointer", fontFamily:"inherit", fontSize:12, fontWeight:700,
+                  }}
+                >Delete Session</button>
+              )
+            )}
+
             {/* Defer Class — only for non-attendance-based, non-makeup, non-already-deferred sessions */}
             {!student?.attendanceBased && !sess.isMakeup && !sess.isDeferred && (
               <>
@@ -176,22 +211,22 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
 
                     <div style={{ display:"flex", gap:4, marginBottom:8 }}>
                       <input type="number" value={makeupYear} min={2020} max={2035}
-                        onChange={e => { setMakeupYear(Number(e.target.value)); setDeferDirty(true); }}
+                        onChange={e => setMakeupYear(Number(e.target.value))}
                         style={{ ...inp, width:60 }} placeholder="Year" />
                       <input type="number" value={makeupMonth} min={1} max={12}
-                        onChange={e => { setMakeupMonth(Number(e.target.value)); setDeferDirty(true); }}
+                        onChange={e => setMakeupMonth(Number(e.target.value))}
                         style={{ ...inp, width:48 }} placeholder="Mo" />
                       <input type="number" value={makeupDay} min={1} max={31}
-                        onChange={e => { setMakeupDay(Number(e.target.value)); setDeferDirty(true); }}
+                        onChange={e => setMakeupDay(Number(e.target.value))}
                         style={{ ...inp, width:44 }} placeholder="Day" />
                     </div>
 
                     <div style={{ display:"flex", gap:4, marginBottom:10 }}>
                       <input type="time" value={makeupStart}
-                        onChange={e => { setMakeupStart(e.target.value); setDeferDirty(true); }}
+                        onChange={e => setMakeupStart(e.target.value)}
                         style={{ ...inp, flex:1 }} placeholder="Start time" />
                       <input type="time" value={makeupEnd}
-                        onChange={e => { setMakeupEnd(e.target.value); setDeferDirty(true); }}
+                        onChange={e => setMakeupEnd(e.target.value)}
                         style={{ ...inp, flex:1 }} placeholder="End time" />
                     </div>
 
@@ -224,10 +259,11 @@ export default function CalendarView({
   const [calMonth, setCalMonth] = useState(today.getMonth());
   const [viewMode, setViewMode] = useState("both");
 
-  const [bookModal,    setBookModal]    = useState(null);
-  const [bookForm,     setBookForm]     = useState({ studentId: "", startTime: "09:00", endTime: "10:00" });
-  const [clashWarning, setClashWarning] = useState(null);
-  const [bookSuccess,  setBookSuccess]  = useState(false);
+  const [bookModal,     setBookModal]     = useState(null);
+  const [bookForm,      setBookForm]      = useState({ studentId: "", startTime: "09:00", endTime: "10:00" });
+  const [clashWarning,  setClashWarning]  = useState(null);
+  const [bookSuccess,   setBookSuccess]   = useState(false);
+  const [bookTimeError, setBookTimeError] = useState(null);
 
   const isTeacher  = currentUser?.role === "teacher";
 
@@ -312,6 +348,10 @@ export default function CalendarView({
     }
   }
 
+  function handleDeleteSession(sess) {
+    setOneOffSessions(prev => prev.filter(s => s.id !== sess.id));
+  }
+
   function handleScheduleMakeup(sess, makeupDate, makeupStartTime, makeupEndTime) {
     addDeferral({
       studentId:    sess.studentId,
@@ -341,10 +381,16 @@ export default function CalendarView({
     setBookModal({ roomId });
     setBookSuccess(false);
     setClashWarning(null);
+    setBookTimeError(null);
   }
 
   function checkAndBook() {
     if (!bookForm.studentId || !bookForm.startTime || !bookForm.endTime) return;
+    if (bookForm.endTime <= bookForm.startTime) {
+      setBookTimeError("End time must be after start time.");
+      return;
+    }
+    setBookTimeError(null);
     const student = students.find(s => s.id === bookForm.studentId);
     const { roomId } = bookModal;
     const roomSessions = combinedSessions.filter(s => s.roomId === roomId);
@@ -468,6 +514,7 @@ export default function CalendarView({
                         onStatusChange={handleStatusChange}
                         onScheduleMakeup={handleScheduleMakeup}
                         onRemoveDeferral={removeDeferral}
+                        onDeleteSession={handleDeleteSession}
                         T={T} currentUser={currentUser} />
                       {sess.isMakeup && (
                         <button
@@ -521,14 +568,19 @@ export default function CalendarView({
               </Sel>
               <div style={{ display: "flex", gap: 11 }}>
                 <Sel T={T} label="Start Time" value={bookForm.startTime}
-                  onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, startTime: e.target.value })); }}>
+                  onChange={e => { setDirty?.(true); setBookTimeError(null); setBookForm(f => ({ ...f, startTime: e.target.value })); }}>
                   {HOURS.map(h => <option key={h}>{h}</option>)}
                 </Sel>
                 <Sel T={T} label="End Time" value={bookForm.endTime}
-                  onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, endTime: e.target.value })); }}>
-                  {HOURS.map(h => <option key={h}>{h}</option>)}
+                  onChange={e => { setDirty?.(true); setBookTimeError(null); setBookForm(f => ({ ...f, endTime: e.target.value })); }}>
+                  {HOURS.filter(h => h > bookForm.startTime).map(h => <option key={h}>{h}</option>)}
                 </Sel>
               </div>
+              {bookTimeError && (
+                <div style={{ fontSize: 12, color: "#FF5A65", background: "rgba(255,90,101,0.08)", border: "0.6px solid rgba(255,90,101,0.35)", borderRadius: 6, padding: "7px 10px" }}>
+                  {bookTimeError}
+                </div>
+              )}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
                 <Btn T={T} variant="ghost" onClick={() => { setBookModal(null); setDirty?.(false); }}>Cancel</Btn>
                 <Btn T={T} onClick={checkAndBook}>Check & Book</Btn>
