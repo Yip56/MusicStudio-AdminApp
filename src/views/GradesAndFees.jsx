@@ -1,17 +1,24 @@
 import { useState, useRef } from "react";
 import * as XLSX from "xlsx";
-import { Card, Btn, SectionTitle } from "../components/UI.jsx";
-import { GRADE_LABELS, CONTEMPORARY_GRADE_LABELS, INSTRUMENTS } from "../data/seed.js";
+import { Card, Btn, SectionTitle, Modal } from "../components/UI.jsx";
+import { GRADE_LABELS, CONTEMPORARY_GRADE_LABELS } from "../data/seed.js";
 
 const DURATIONS = ["30", "45", "60"];
+const DEFAULT_CLASSICAL_ROW = { "30": 0, "45": 0, "60": 0 };
 
 export default function GradesAndFees({ fees, setFees, contemporaryFees, setContemporaryFees, saveFees, T, isMobile, setDirty }) {
   const [syllabus,      setSyllabus]      = useState("classical");
-  const [feeInst,       setFeeInst]       = useState("Piano");
+  const [feeInst,       setFeeInst]       = useState(() => Object.keys(fees)[0] ?? "Piano");
   const [saveStatus,    setSaveStatus]    = useState("idle");   // idle | saving | saved | error
   const [importStatus,  setImportStatus]  = useState("idle");   // idle | importing | imported | error
+  const [addingInst,    setAddingInst]    = useState(false);
+  const [newInstName,   setNewInstName]   = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const fileInputRef = useRef(null);
+
+  // Dynamic instrument list derived from fees (Firestore source of truth)
+  const instruments = Object.keys(fees);
 
   // ── Manual cell edits ──────────────────────────────────────────────────────
   function setClassicalFee(grade, duration, val) {
@@ -38,20 +45,45 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
     }
   }
 
+  // ── Add / remove instruments ──────────────────────────────────────────────
+  function confirmAddInstrument() {
+    const name = newInstName.trim();
+    if (!name || instruments.map(i => i.toLowerCase()).includes(name.toLowerCase())) return;
+    const classicalDefaults = Object.fromEntries(GRADE_LABELS.map(g => [g, { ...DEFAULT_CLASSICAL_ROW }]));
+    const contemDefaults    = Object.fromEntries(CONTEMPORARY_GRADE_LABELS.map(g => [g, { ...DEFAULT_CLASSICAL_ROW }]));
+    setFees(p => ({ ...p, [name]: classicalDefaults }));
+    setContemporaryFees(p => ({ ...p, [name]: contemDefaults }));
+    setFeeInst(name);
+    setNewInstName("");
+    setAddingInst(false);
+    setDirty(true);
+    setSaveStatus("idle");
+  }
+
+  function removeInstrument() {
+    if (instruments.length <= 1) return;
+    setFees(p => { const n = { ...p }; delete n[feeInst]; return n; });
+    setContemporaryFees(p => { const n = { ...p }; delete n[feeInst]; return n; });
+    setFeeInst(instruments.find(i => i !== feeInst) ?? "");
+    setConfirmRemove(false);
+    setDirty(true);
+    setSaveStatus("idle");
+  }
+
   // ── Excel export ───────────────────────────────────────────────────────────
   // Format: two sheets (Classical, Contemporary).
   // Each sheet: row per grade level, column groups per instrument (30/45/60 min each).
   function downloadTemplate() {
     const wb = XLSX.utils.book_new();
-    const headers = ["Level", ...INSTRUMENTS.flatMap(inst => DURATIONS.map(d => `${inst} ${d}min`))];
-    const colWidths = [{ wch: 14 }, ...INSTRUMENTS.flatMap(() => [{ wch: 10 }, { wch: 10 }, { wch: 10 }])];
+    const headers = ["Level", ...instruments.flatMap(inst => DURATIONS.map(d => `${inst} ${d}min`))];
+    const colWidths = [{ wch: 14 }, ...instruments.flatMap(() => [{ wch: 10 }, { wch: 10 }, { wch: 10 }])];
 
     function makeSheet(gradeLabels, feeSrc) {
       const rows = [
         headers,
         ...gradeLabels.map(grade => [
           grade,
-          ...INSTRUMENTS.flatMap(inst => DURATIONS.map(d => feeSrc[inst]?.[grade]?.[d] ?? 0)),
+          ...instruments.flatMap(inst => DURATIONS.map(d => feeSrc[inst]?.[grade]?.[d] ?? 0)),
         ]),
       ];
       const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -86,11 +118,20 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
           if (rows.length < 2) return null;
 
+          // Read instruments from header row dynamically
+          const headerRow = rows[0] ?? [];
+          const sheetInstruments = [];
+          for (let col = 1; col < headerRow.length; col += 3) {
+            const header = String(headerRow[col] ?? "");
+            const instName = header.replace(/\s*\d+min$/, "").trim();
+            if (instName) sheetInstruments.push(instName);
+          }
+
           const result = {};
           rows.slice(1).forEach(row => {
             const grade = String(row[0] ?? "").trim();
             if (!grade || !gradeLabels.includes(grade)) return;
-            INSTRUMENTS.forEach((inst, i) => {
+            sheetInstruments.forEach((inst, i) => {
               if (!result[inst]) result[inst] = {};
               const offset = 1 + i * 3;
               result[inst][grade] = {
@@ -238,13 +279,63 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
       </div>
 
       {/* Instrument selector */}
-      <div style={{ display: "flex", gap: 7, marginBottom: 16, flexWrap: "wrap" }}>
-        {INSTRUMENTS.map(i => (
+      <div style={{ display: "flex", gap: 7, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        {instruments.map(i => (
           <Btn key={i} T={T} variant={feeInst === i ? "primary" : "ghost"}
             style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}}
-            onClick={() => setFeeInst(i)}>{i}</Btn>
+            onClick={() => { setFeeInst(i); setAddingInst(false); }}>
+            {i}
+          </Btn>
         ))}
+
+        {/* Add instrument */}
+        {addingInst ? (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <input
+              autoFocus
+              value={newInstName}
+              onChange={e => setNewInstName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") confirmAddInstrument(); if (e.key === "Escape") { setAddingInst(false); setNewInstName(""); } }}
+              placeholder="Instrument name"
+              style={{
+                background: T.input, border: `1px solid ${T.border2}`, borderRadius: 4,
+                color: T.text, padding: "6px 10px", fontSize: 12, outline: "none",
+                fontFamily: "inherit", width: 130,
+              }}
+            />
+            <Btn T={T} variant="primary" style={{ fontSize: 12, padding: "6px 10px" }} onClick={confirmAddInstrument}>Add</Btn>
+            <Btn T={T} variant="ghost"   style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => { setAddingInst(false); setNewInstName(""); }}>Cancel</Btn>
+          </div>
+        ) : (
+          <Btn T={T} variant="ghost"
+            style={{ fontSize: 12, padding: "6px 10px", color: T.muted }}
+            onClick={() => setAddingInst(true)}>
+            + Add
+          </Btn>
+        )}
+
+        {/* Remove current instrument — pushed to right */}
+        {instruments.length > 1 && !addingInst && (
+          <Btn T={T} variant="danger"
+            style={{ marginLeft: "auto", fontSize: 12, padding: "6px 12px" }}
+            onClick={() => setConfirmRemove(true)}>
+            Remove {feeInst}
+          </Btn>
+        )}
       </div>
+
+      {/* Remove confirmation modal */}
+      {confirmRemove && (
+        <Modal T={T} title={`Remove ${feeInst}?`} onClose={() => setConfirmRemove(false)} width={380}>
+          <p style={{ fontSize: 13, color: T.textSub, marginBottom: 20, lineHeight: 1.6 }}>
+            This will delete all fee data for <b style={{ color: T.text }}>{feeInst}</b> from both Classical and Contemporary schedules. This cannot be undone without clicking Save Changes first.
+          </p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn T={T} variant="ghost"  onClick={() => setConfirmRemove(false)}>Cancel</Btn>
+            <Btn T={T} variant="danger" onClick={removeInstrument}>Confirm Delete {feeInst}</Btn>
+          </div>
+        </Modal>
+      )}
 
       <Card T={T}>
         {(syllabus === "classical" || syllabus === "both") && (
