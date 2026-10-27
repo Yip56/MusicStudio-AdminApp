@@ -1,11 +1,12 @@
 import { useState } from "react";
+import { jsPDF } from "jspdf";
 import { usePayrollMonth } from "../hooks/usePayrollMonth.js";
 import { calcStudentPayroll } from "../utils/helpers.js";
 
 export default function PayoutPreview({
   teacher, year, month,
   students, fees, attendanceOverrides, adminFlatFee,
-  T, isMobile, onBack
+  T, isMobile, onBack, currentUser
 }) {
   const yearMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
   const { feeStatus, payoutStatus, markPayoutPaid } = usePayrollMonth(yearMonth);
@@ -92,11 +93,199 @@ export default function PayoutPreview({
     URL.revokeObjectURL(url);
   }
 
+  function downloadInvoice(d) {
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    const studentSlug = d.student.name.replace(/\s+/g, "");
+    const invoiceNo   = `INV-${studentSlug}-${dateStr}`;
+    const issuedDate  = now.toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" });
+    const issuedTime  = now.toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" });
+    const collectedDate = d.collectedAt?.toDate
+      ? d.collectedAt.toDate().toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" })
+      : null;
+    const issuedBy     = currentUser?.displayName ?? currentUser?.email ?? "Admin";
+    const sessionType  = d.student.attendanceBased ? "Attendance-Based" : "Full Fee";
+    const sessionLength = d.student.schedule?.duration ?? null;
+    const instrument   = d.student.instrument ?? "—";
+
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const W = 210;
+    const M = 20;
+    let y = 0;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    const BLK  = [0, 0, 0];
+    const GRY  = [120, 120, 120];
+    const LGRY = [190, 190, 190];
+
+    function sf(size, style = "normal", face = "helvetica", color = BLK) {
+      doc.setFont(face, style);
+      doc.setFontSize(size);
+      doc.setTextColor(...color);
+    }
+
+    function hLine(ly, thickness = 0.25, color = LGRY) {
+      doc.setDrawColor(...color);
+      doc.setLineWidth(thickness);
+      doc.line(M, ly, W - M, ly);
+    }
+
+    // ── Studio name (top-left) + "Invoice" serif title (top-right) ─────────────
+    y = 18;
+    sf(18, "bold", "helvetica", BLK);
+    doc.text("Ark Music Studio", M, y + 6);
+
+    sf(30, "normal", "times", BLK);
+    doc.text("Invoice", W - M, y + 9, { align: "right" });
+
+    y += 26;
+    hLine(y, 0.4, BLK);
+    y += 10;
+
+    // ── Billed To (left) / Invoice meta (right) ───────────────────────────────
+    sf(9, "bold", "helvetica", BLK);
+    doc.text("Billed to:", M, y);
+
+    sf(8.5, "normal", "helvetica", GRY);
+    doc.text(`Invoice No.  ${invoiceNo}`, W - M, y, { align: "right" });
+
+    y += 6;
+    sf(9, "normal", "helvetica", BLK);
+    doc.text(d.student.name, M, y);
+
+    sf(8.5, "normal", "helvetica", GRY);
+    doc.text(issuedDate, W - M, y, { align: "right" });
+
+    y += 5;
+    sf(8, "normal", "helvetica", GRY);
+    const billedLine2Parts = [instrument, d.student.grade, sessionLength ? `${sessionLength} min` : null].filter(Boolean);
+    doc.text(billedLine2Parts.join("  ·  "), M, y);
+
+    y += 5;
+    doc.text(`Teacher: ${teacher.name}`, M, y);
+
+    y += 5;
+    doc.text(`Issued by: ${issuedBy}  ·  ${issuedTime}`, M, y);
+
+    y += 12;
+
+    // ── Items table ───────────────────────────────────────────────────────────
+    const amtX  = W - M;          // right-align amounts here
+    const detX  = M + 90;         // detail column start
+    const rowH  = 10;
+
+    // Table header
+    sf(8.5, "bold", "helvetica", BLK);
+    doc.text("Item", M, y);
+    doc.text("Details", detX, y);
+    doc.text("Amount", amtX, y, { align: "right" });
+    y += 2;
+    hLine(y, 0.5, BLK);
+    y += rowH - 1;
+
+    function tableRow(item, detail, amount) {
+      sf(8.5, "normal", "helvetica", BLK);
+      doc.text(item, M, y);
+      sf(8.5, "normal", "helvetica", GRY);
+      doc.text(String(detail), detX, y);
+      sf(8.5, "normal", "helvetica", BLK);
+      if (amount) doc.text(String(amount), amtX, y, { align: "right" });
+      y += 2;
+      hLine(y);
+      y += rowH - 2;
+    }
+
+    tableRow("Billing Period",         monthName,    "");
+    tableRow("Session Type",           sessionType,  "");
+    if (sessionLength) tableRow("Session Length", `${sessionLength} min`, "");
+    tableRow("Monthly Tuition Fee",    `${instrument} · ${d.student.grade}`, `RM ${Number(d.fee || 0).toFixed(2)}`);
+
+    if (d.student.attendanceBased) {
+      tableRow(
+        `Attendance Adjustment`,
+        `${d.attended} of ${d.scheduled} sessions attended`,
+        `RM ${d.gross.toFixed(2)}`
+      );
+    }
+
+    if (d.deferredGrossExtra > 0) {
+      tableRow("Deferred Fee (carried in)", "From prior month(s)", `+ RM ${d.deferredGrossExtra.toFixed(2)}`);
+    }
+
+    // Payment status row
+    const statusText = d.collected
+      ? `Collected${collectedDate ? `  (${collectedDate})` : ""}`
+      : "Pending";
+    tableRow("Payment Status", statusText, "");
+
+    if (d.deferredToMonth) {
+      tableRow("Payout Deferred To", d.deferredToMonth, "");
+    }
+
+    y += 4;
+
+    // ── Black total bar (full width) ──────────────────────────────────────────
+    doc.setFillColor(...BLK);
+    doc.rect(0, y, W, 14, "F");
+    sf(11, "bold", "helvetica", [255, 255, 255]);
+    doc.text("Total", M, y + 9.5);
+    doc.text(`RM ${d.gross.toFixed(2)}`, W - M, y + 9.5, { align: "right" });
+
+    y += 22;
+
+    // ── Thank You (cursive-style) ─────────────────────────────────────────────
+    sf(22, "bolditalic", "times", BLK);
+    doc.text("Thank You!", M, y);
+
+    y += 8;
+    sf(8, "normal", "helvetica", GRY);
+    doc.text(
+      "We appreciate your trust in Ark Music Studio. We are grateful for the opportunity",
+      M, y
+    );
+    y += 5;
+    doc.text(
+      "to be part of your musical journey. See you at the next session!",
+      M, y
+    );
+
+    y += 14;
+
+    // ── Footer: issuer + studio address ──────────────────────────────────────
+    sf(14, "italic", "times", BLK);
+    doc.text(issuedBy, W - M, y, { align: "right" });
+
+    sf(8.5, "bold", "helvetica", BLK);
+    doc.text("Ark Music Studio", M, y);
+
+    y += 6;
+    sf(7.5, "normal", "helvetica", GRY);
+    doc.text("Issued by the studio administration", W - M, y, { align: "right" });
+    doc.text("4-2, Jalan 3/114, Kuchai Business Centre,", M, y);
+
+    y += 5;
+    doc.text("58200 Kuala Lumpur, Wilayah Persekutuan Kuala Lumpur", M, y);
+
+    y += 5;
+    sf(7.5, "bold", "helvetica", BLK);
+    doc.text("017-930 1751", M, y);
+    sf(7.5, "normal", "helvetica", GRY);
+    doc.text(`Generated: ${issuedDate}`, W - M, y, { align: "right" });
+
+    y += 10;
+    hLine(y, 0.3, LGRY);
+    y += 5;
+    sf(7, "normal", "helvetica", LGRY);
+    doc.text(`${invoiceNo}  ·  Ark Music Studio`, W / 2, y, { align: "center" });
+
+    doc.save(`${invoiceNo}.pdf`);
+  }
+
   const COL_HEADS = [
     "Student", "Grade", "Type", "Comm %",
-    "Attendance", "Gross", "Teacher Payout", "Fees Collected"
+    "Attendance", "Gross", "Teacher Payout", "Fees Collected", ""
   ];
-  const COL_WIDTHS = ["18%", "8%", "10%", "8%", "8%", "10%", "12%", "14%"];
+  const COL_WIDTHS = ["16%", "7%", "9%", "7%", "7%", "9%", "11%", "13%", "8%"];
 
   return (
     <div>
@@ -251,6 +440,20 @@ export default function PayoutPreview({
                         )
                       }
                     </td>
+                    <td style={{ padding: "11px 14px" }}>
+                      <button
+                        onClick={() => downloadInvoice(d)}
+                        title="Download invoice for this student"
+                        style={{
+                          padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+                          fontFamily: "inherit", fontSize: 11, fontWeight: 500,
+                          background: "rgba(203,60,255,0.12)", color: "#CB3CFF",
+                          border: "0.6px solid rgba(203,60,255,0.3)",
+                        }}
+                      >
+                        Invoice
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -267,6 +470,7 @@ export default function PayoutPreview({
                   }}>
                     RM {totalPayout.toFixed(2)}
                   </td>
+                  <td style={{ padding: "11px 14px" }} />
                   <td style={{ padding: "11px 14px" }} />
                 </tr>
               </tfoot>

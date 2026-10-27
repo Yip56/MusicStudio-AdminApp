@@ -408,7 +408,7 @@ export default function Payroll({ students, teachers, setTeachers, fees, adminFl
               {isElevated && (
                 <>
                   <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }}
-                    onClick={() => openPayoutPreview(row.teacher, selY, selM)}>Export</Btn>
+                    onClick={() => openPayoutPreview(row.teacher, selY, selM)}>Pay Out</Btn>
                   <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }}
                     onClick={() => openEdit(row.teacher)}>Edit</Btn>
                   <Btn T={T} variant="danger" style={{ padding: "5px 11px", fontSize: 11 }}
