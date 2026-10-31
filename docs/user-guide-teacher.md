@@ -16,7 +16,9 @@ You can only see and change **your own** classes. Other teachers' classes appear
 
 **If you see "Access Denied":** you signed in with a Gmail account the studio has not registered. Click **Sign out and try another account**, or ask your studio administrator to invite the Gmail address you use.
 
-To log out, click **Sign Out** at the bottom of the left menu (on a phone: open **More**, then **Sign Out**).
+To log out, click **Sign Out** at the bottom of the left menu (on a phone: tap **More** in the bottom bar, then **Sign Out**).
+
+**Quick search:** press **Ctrl + K** (or **Cmd + K** on a Mac) — or tap the magnifier at the top on a phone — and type a page name or one of your students to jump straight to it.
 
 ---
 
@@ -73,9 +75,10 @@ This is available for students on a normal (full-fee) plan.
 1. Click **Students** in the menu.
 2. You see one row for every class you teach: student, instrument, grade, day, time and fee type.
    ![The students list](TODO)
-3. Use the search box to find a student by name or instrument.
+3. Use the search box to find a student by name or instrument, or tap an instrument chip above the list to show only that instrument.
 4. A student with two instruments shows a purple **2 instruments** label. Only the instruments you teach are listed for you.
 5. Click **Show stopped** to include students who have finished lessons with the studio.
+6. Click a student's row (on a phone, tap their card) to see their class details. On a computer the details open in a panel beside the list; on a phone they slide up from the bottom — drag down or tap **✕** to close.
 
 ---
 
@@ -85,8 +88,8 @@ Teachers **ask** for a grade change; the administrator approves it. You cannot c
 
 1. Click **Students**.
 2. Find the right student **and the right instrument** (a student with two instruments has a row for each).
-3. Click **Request Grade**.
-   ![The grade request window](TODO)
+3. Click **Update Grade** (on the row, or in the student's details panel).
+   ![The Update Grade window](TODO)
 4. Choose the new grade, write a short reason, and click **Send Request**.
 5. The administrator is notified. When they approve it, the grade on the student's row changes.
 
@@ -126,7 +129,7 @@ Payroll, fees and commission are handled by the studio administrator. **You do n
 | I marked Present by mistake | Open the card and click **Present** again to undo it, then choose the right button. |
 | My booking says the student or teacher is already busy | Pick a different time. A student and a teacher can't be in two classes at once. |
 | My booking says the room isn't set up for the instrument | Choose a room that is set up for that instrument (the room's types are shown to administrators on the Rooms page). |
-| The Request Grade button asks for a reason | A short reason is required before the request can be sent. |
+| The Update Grade button asks for a reason | A short reason is required before the request can be sent. |
 | The page looks out of date | Refresh the browser. If a warning asks about unsaved changes, choose **Stay and Keep Editing** to finish first. |
 
 ---
@@ -145,7 +148,7 @@ Yes, for every class you teach. For students on an attendance-based fee, the fee
 **Can I change a student's fee or my commission rate?**
 No. Only administrators can do that.
 
-**What happens to a grade request after I send it?**
+**What happens to an Update Grade after I send it?**
 It waits for the administrator. When it is approved, the grade changes. Approved and rejected requests are kept in **Archive → Notification Archive**.
 
 **I rejected a clash request by mistake.**

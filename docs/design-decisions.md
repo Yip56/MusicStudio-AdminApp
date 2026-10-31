@@ -51,7 +51,7 @@ Assumed:
 ## 5. Grade changes (grade lock replaced)
 
 The original brief asked for a read-only grade once a fee was collected. The owner replaced this: **Finalize Month does that job.** Instead there is a **warning** when an admin changes a grade or lesson length after the fee was collected. The collected fee keeps its amount; the change only affects future fees. *Decided.*
-Assumed: approving a teacher's grade request from the bell shows only an informational note, not a tick-to-confirm.
+Assumed: approving a teacher's Update Grade from the bell shows only an informational note, not a tick-to-confirm.
 
 ## 6. Finalize Month and Archive
 

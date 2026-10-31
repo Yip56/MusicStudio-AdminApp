@@ -487,7 +487,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
 
               return (
                 <tr key={`${entry._type}-${entry.id}`}
-                  onMouseEnter={e => { if (!isTransferSource) e.currentTarget.style.background = T.hover; }}
+                  onPointerEnter={e => { if (e.pointerType === "mouse" && !isTransferSource) e.currentTarget.style.background = T.hover; }}
                   onMouseLeave={e => { e.currentTarget.style.background = isTransferSource ? "#4ade8010" : "transparent"; }}
                   style={{
                     borderBottom: `0.6px solid ${T.border}`,

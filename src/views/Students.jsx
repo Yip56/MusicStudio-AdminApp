@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
-import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, THead } from "../components/UI.jsx";
+import { useState, useMemo, useEffect } from "react";
+import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, Sheet, THead } from "../components/UI.jsx";
+import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import EnrolmentForm from "../components/EnrolmentForm.jsx";
 import { DAYS_OF_WEEK, TODAY } from "../data/seed.js";
 import { gradesFor } from "../domain/enrolments.js";
@@ -28,12 +29,14 @@ function EditModal({ enrolment, ...props }) {
 
 export default function Students({
   students, enrolments, deposits, teachers, rooms, instruments, tables, actions,
-  T, currentUser, sendGradeRequest, isMobile, setDirty,
+  T, currentUser, sendGradeRequest, isMobile, setDirty, focusStudentId, onFocusHandled,
 }) {
   const [search,      setSearch]      = useState("");
   const [showStopped, setShowStopped] = useState(false);
   const [modal,       setModal]       = useState(null);   // {kind:"register"} | {kind:"add"|"edit"|"stop"|"deposit"|"delete"|"grade", ...}
-  const [expandedId,  setExpandedId]  = useState(null);
+  const [selectedId,  setSelectedId]  = useState(null);   // enrolment shown in the detail panel / sheet
+  const [filter,      setFilter]      = useState("all");  // "all" | "pending" | "inst:<Instrument>"
+  const wide = useMediaQuery("(min-width: 1100px)");
   const [error,       setError]       = useState(null);
   const [busy,        setBusy]        = useState(false);
   const [stopYM,      setStopYM]      = useState(ymOfDate(TODAY));
@@ -58,11 +61,20 @@ export default function Students({
   const rows = enrolments
     .filter(e => isTeacher ? e.teacherId === currentUser.teacherId : true)
     .filter(e => showStopped || live(e))
+    .filter(e => filter === "all" ? true : filter === "pending" ? depositOf(e.id)?.status === "pending" : e.instrument === filter.slice(5))
     .filter(e => {
       const q = search.toLowerCase();
       return (studentOf(e.studentId)?.name ?? "").toLowerCase().includes(q) || (e.instrument ?? "").toLowerCase().includes(q);
     })
     .sort((a, b) => (studentOf(a.studentId)?.name ?? "").localeCompare(studentOf(b.studentId)?.name ?? "") || (a.instrument ?? "").localeCompare(b.instrument ?? ""));
+
+  // Quick search (Ctrl+K) asked us to show a particular student
+  useEffect(() => {
+    if (!focusStudentId) return;
+    const e = enrolments.find(x => x.studentId === focusStudentId && live(x)) ?? enrolments.find(x => x.studentId === focusStudentId);
+    if (e) { setSelectedId(e.id); if (e.status === "stopped") setShowStopped(true); }
+    onFocusHandled?.();
+  }, [focusStudentId]);
 
   const close = () => { setModal(null); setError(null); setNotice(null); setDirty?.(false); };
   async function run(fn, after) {
@@ -171,7 +183,7 @@ export default function Students({
   const deleteModal = modal?.kind === "delete" && (
     <Modal T={T} title="Delete student?" width={400} onClose={close}>
       <p style={{ fontSize: 13, color: T.textSub, lineHeight: 1.7, marginBottom: 16 }}>
-        <strong style={{ color: T.text }}>{modal.student.name}</strong> and all of their enrolments will be removed. Stopping an enrolment is usually better — it keeps the history and applies the deposit.
+        <strong style={{ color: T.text }}>{modal.student.name}</strong> and all of their data will be permanently removed: enrolments, deposits (including any held deposit), attendance, make-up classes and one-off bookings. This cannot be undone. Finalized months are not changed.
       </p>
       {error && <div style={{ ...errBox, marginBottom: 12 }}>{error}</div>}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
@@ -182,7 +194,7 @@ export default function Students({
   );
 
   const gradeModal = modal?.kind === "grade" && (
-    <Modal T={T} title="Request Grade Update" width={420} onClose={close}>
+    <Modal T={T} title="Update Grade" width={420} onClose={close}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ background: T.bg, border: `0.6px solid ${T.border2}`, borderRadius: 9, padding: "11px 14px" }}>
           <div style={{ fontSize: 11, color: T.muted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>Student · Instrument</div>
@@ -204,7 +216,7 @@ export default function Students({
           {!gradeOk && <Btn T={T} onClick={async () => {
             if (!gradeForm.reason.trim()) return;
             await sendGradeRequest({ fromTeacherId: currentUser.teacherId, studentId: modal.enrolment.studentId, enrolmentId: modal.enrolment.id, requestedGrade: gradeForm.requestedGrade, reason: gradeForm.reason });
-            setGradeOk("Grade update request sent to admin.");
+            setGradeOk("Grade update sent to admin.");
           }}>Send Request</Btn>}
         </div>
       </div>
@@ -235,19 +247,60 @@ export default function Students({
       {e.schedule?.duration && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: T.accent, background: T.accent + "18", border: `0.6px solid ${T.accent}40`, borderRadius: 4, padding: "1px 5px" }}>{e.schedule.duration} min</span>}
     </>
   );
-  const actionsFor = e => (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {isElevated && <>
-        <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => { setError(null); setModal({ kind: "edit", enrolment: e }); }}>Edit</Btn>
-        <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openDeposit(e)}>Deposit</Btn>
-        <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => { setError(null); setModal({ kind: "add", student: studentOf(e.studentId) }); }}>+ Instrument</Btn>
-        {e.status !== "stopped" && <Btn T={T} variant="danger" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openStop(e)}>Stop</Btn>}
-        <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11, color: "#FF5A65" }} onClick={() => { setError(null); setModal({ kind: "delete", student: studentOf(e.studentId) }); }}>Delete</Btn>
-        {e.status === "stopped" && depositOf(e.id)?.status === "held" && <Btn T={T} style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openDeposit(e)}>Apply deposit</Btn>}
-      </>}
-      {isTeacher && <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openGrade(e)}>Request Grade</Btn>}
-    </div>
-  );
+  const openEdit = e => { setError(null); setModal({ kind: "edit", enrolment: e }); };
+  // The table row keeps one primary action; everything else lives in the detail panel / sheet.
+  const rowAction = e => isElevated
+    ? <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={ev => { ev.stopPropagation(); openEdit(e); }}>Edit</Btn>
+    : <Btn T={T} variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={ev => { ev.stopPropagation(); openGrade(e); }}>Update Grade</Btn>;
+  const actionsFor = e => {
+    const b = { padding: "9px 14px", fontSize: 12 };
+    return (
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {isElevated && <>
+          <Btn T={T} style={b} onClick={() => openEdit(e)}>Edit</Btn>
+          <Btn T={T} variant="ghost" style={b} onClick={() => openDeposit(e)}>Deposit</Btn>
+          <Btn T={T} variant="ghost" style={b} onClick={() => { setError(null); setModal({ kind: "add", student: studentOf(e.studentId) }); }}>+ Instrument</Btn>
+          {e.status === "stopped" && depositOf(e.id)?.status === "held" && <Btn T={T} style={b} onClick={() => openDeposit(e)}>Apply deposit</Btn>}
+          {e.status !== "stopped" && <Btn T={T} variant="danger" style={b} onClick={() => openStop(e)}>Stop</Btn>}
+          <Btn T={T} variant="ghost" style={{ ...b, color: "#FF5A65" }} onClick={() => { setError(null); setModal({ kind: "delete", student: studentOf(e.studentId) }); }}>Delete</Btn>
+        </>}
+        {isTeacher && <Btn T={T} style={b} onClick={() => openGrade(e)}>Update Grade</Btn>}
+      </div>
+    );
+  };
+
+  // ── detail view: side panel on wide desktop, bottom sheet elsewhere ───────
+  const selected = rows.find(r => r.id === selectedId) ?? null;
+  const detailBody = e => {
+    const s = studentOf(e.studentId), teacher = teachers.find(t => t.id === e.teacherId), room = rooms.find(r => r.id === e.schedule?.roomId);
+    const line = (k, v) => v == null || v === false ? null : (
+      <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 14, padding: "10px 0", borderBottom: `0.6px solid ${T.border}`, fontSize: 12 }}>
+        <span style={{ color: T.muted }}>{k}</span><span style={{ color: T.text, textAlign: "right", fontWeight: 500 }}>{v}</span>
+      </div>
+    );
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <Avatar name={s?.name ?? "?"} size={44} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: T.text, letterSpacing: "-0.01em" }}>{s?.name ?? "—"}</div>
+            <div style={{ fontSize: 12, color: e.instrument ? T.muted : "#FDB52A" }}>{e.instrument ?? "No longer offered"} · {e.grade}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          {multi(e)}{depBadge(e)}{statusBadge(e)}
+        </div>
+        {isElevated && line("Teacher", teacher?.name ?? "—")}
+        {line("Class", <>{DAYS_OF_WEEK[e.schedule?.dayOfWeek ?? 0]}, {timeCell(e)}</>)}
+        {line("Room", room?.name)}
+        {isElevated && line("Billing", TERM_LABEL[e.billingTerm ?? "monthly"])}
+        {line("Fee type", e.attendanceBased ? "Attendance based" : "Full fee")}
+        {isElevated && line("Phone", s?.phone || null)}
+        {isElevated && s?.notes && <div style={{ fontSize: 12, color: T.textSub, lineHeight: 1.6, padding: "10px 0", borderBottom: `0.6px solid ${T.border}` }}><span style={{ color: T.muted }}>Notes: </span>{s.notes}</div>}
+        <div style={{ marginTop: 16 }}>{actionsFor(e)}</div>
+      </div>
+    );
+  };
 
   const header = (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isMobile ? 14 : 18, gap: 10, flexWrap: "wrap" }}>
@@ -264,11 +317,25 @@ export default function Students({
       </div>
     </div>
   );
+  const chip = (on, label, onClick) => (
+    <button key={label} onClick={onClick} aria-pressed={on} style={{
+      flexShrink: 0, padding: "6px 12px", borderRadius: 99, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+      border: `0.6px solid ${on ? T.accent : T.border2}`, background: on ? T.accent : T.panel, color: on ? "#fff" : T.muted,
+      transition: "transform 0.1s ease-out, background-color 0.15s, color 0.15s",
+    }}>{label}</button>
+  );
+  const chips = (
+    <div className="sos-chips" style={{ margin: isMobile ? "0 -16px 12px" : "0 0 12px", padding: isMobile ? "0 16px" : 0 }}>
+      {chip(filter === "all", "All", () => setFilter("all"))}
+      {instruments.map(i => chip(filter === "inst:" + i, i, () => setFilter(f => f === "inst:" + i ? "all" : "inst:" + i)))}
+      {isElevated && chip(filter === "pending", "Deposit pending", () => setFilter(f => f === "pending" ? "all" : "pending"))}
+      {chip(showStopped, "Show stopped", () => setShowStopped(v => !v))}
+    </div>
+  );
   const toolbar = (
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
       {isMobile && <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
         style={{ flex: 1, background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 4, color: T.text, padding: "9px 14px", fontSize: 12, outline: "none", fontFamily: "inherit", height: 42 }} />}
-      <Btn T={T} variant={showStopped ? "active" : "ghost"} style={{ fontSize: 11, padding: "6px 12px" }} onClick={() => setShowStopped(s => !s)}>{showStopped ? "Hide stopped" : "Show stopped"}</Btn>
       {isElevated && instruments.length === 0 && <span style={{ fontSize: 11, color: "#FDB52A" }}>Add instruments on Grades & Fees before registering students.</span>}
     </div>
   );
@@ -278,43 +345,35 @@ export default function Students({
   if (isMobile) {
     return (
       <div>
-        {header}{toolbar}
+        {header}{toolbar}{chips}
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {rows.map(e => {
-            const s = studentOf(e.studentId), teacher = teachers.find(t => t.id === e.teacherId), room = rooms.find(r => r.id === e.schedule?.roomId);
-            const open = expandedId === e.id;
+            const s = studentOf(e.studentId);
             return (
-              <div key={e.id} style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", opacity: e.status === "stopped" ? 0.7 : 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 14px" }}>
-                  <Avatar name={s?.name ?? "?"} size={36} />
+              <div key={e.id} className="sos-press" role="button" tabIndex={0} onClick={() => setSelectedId(e.id)}
+                onKeyDown={ev => { if (ev.key === "Enter") setSelectedId(e.id); }}
+                style={{ background: T.panel, border: `0.6px solid ${T.border2}`, borderRadius: 16, opacity: e.status === "stopped" ? 0.7 : 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", minHeight: 64 }}>
+                  <Avatar name={s?.name ?? "?"} size={38} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 3 }}>{s?.name ?? "—"}</div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ fontSize: 12, color: T.textSub }}>{e.instrument ?? "—"}</span>
                       <Badge label={e.grade} color={T.accent} bg={T.accent + "18"} />
-                      {multi(e)}
+                      {multi(e)}{statusBadge(e)}
                     </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{DAYS_OF_WEEK[e.schedule?.dayOfWeek ?? 0]} · {e.schedule?.startTime}</div>
                   </div>
-                  <button onClick={() => setExpandedId(open ? null : e.id)} style={{ background: T.dim, border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 12, color: T.muted, fontFamily: "inherit" }}>{open ? "▲" : "▼"}</button>
+                  <span style={{ color: T.muted, fontSize: 18 }}>›</span>
                 </div>
-                {open && (
-                  <div style={{ borderTop: `1px solid ${T.border}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                    {isElevated && teacher && <div style={{ fontSize: 12, color: T.textSub }}><span style={{ color: T.muted }}>Teacher: </span>{teacher.name}</div>}
-                    <div style={{ fontSize: 12, color: T.textSub }}><span style={{ color: T.muted }}>Class: </span>{DAYS_OF_WEEK[e.schedule?.dayOfWeek ?? 0]}, {timeCell(e)}</div>
-                    {room && <div style={{ fontSize: 12, color: T.textSub }}><span style={{ color: T.muted }}>Room: </span>{room.name}</div>}
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {e.attendanceBased ? <Badge label="Att. Based" color="#60a5fa" bg="#0c1a2e" /> : <Badge label="Full Fee" color={T.muted} bg={T.dim} />}
-                      {isElevated && <Badge label={TERM_LABEL[e.billingTerm ?? "monthly"]} color={T.muted} bg={T.dim} />}
-                      {depBadge(e)}{statusBadge(e)}
-                    </div>
-                    {actionsFor(e)}
-                  </div>
-                )}
               </div>
             );
           })}
           {rows.length === 0 && <div style={{ textAlign: "center", padding: "30px 0", color: T.muted, fontSize: 13 }}>No students found.</div>}
         </div>
+        {selected && (
+          <Sheet T={T} title="Student" onClose={() => setSelectedId(null)}>{detailBody(selected)}</Sheet>
+        )}
         {modals}
       </div>
     );
@@ -322,12 +381,14 @@ export default function Students({
 
   // ── desktop ───────────────────────────────────────────────────────────────
   const cols = isTeacher
-    ? ["Student", "Instrument", "Grade", "Class Day", "Time", "Fee Type", "Actions"]
-    : ["Student", "Instrument", "Grade", "Teacher", "Class", "Term", "Fee Type", "Status", "Actions"];
+    ? ["Student", "Instrument", "Grade", "Class Day", "Time", "Fee Type", ""]
+    : ["Student", "Instrument", "Grade", "Teacher", "Class", "Term", "Fee Type", "Status", ""];
 
   return (
     <div>
-      {header}{toolbar}
+      {header}{toolbar}{chips}
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
       <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={cols} />
@@ -335,8 +396,9 @@ export default function Students({
             {rows.map(e => {
               const s = studentOf(e.studentId), teacher = teachers.find(t => t.id === e.teacherId), room = rooms.find(r => r.id === e.schedule?.roomId);
               return (
-                <tr key={e.id} onMouseEnter={ev => ev.currentTarget.style.background = T.hover} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}
-                  style={{ borderBottom: `0.6px solid ${T.border}`, opacity: e.status === "stopped" ? 0.65 : 1 }}>
+                <tr key={e.id} className={"sos-row" + (e.id === selectedId ? " sos-row--sel" : "")} tabIndex={0} aria-selected={e.id === selectedId}
+                  onClick={() => setSelectedId(e.id)} onKeyDown={ev => { if (ev.key === "Enter") setSelectedId(e.id); }}
+                  style={{ borderBottom: `0.6px solid ${T.border}`, opacity: e.status === "stopped" ? 0.65 : 1, cursor: "pointer" }}>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                       <Avatar name={s?.name ?? "?"} size={30} />
@@ -359,7 +421,7 @@ export default function Students({
                     {e.attendanceBased ? <Badge label="Att. Based" color="#60a5fa" bg="#0c1a2e" /> : <Badge label="Full Fee" color={T.muted} bg={T.dim} />}
                   </td>
                   {isElevated && <td style={{ padding: "11px 14px" }}><div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>{depBadge(e)}{statusBadge(e)}</div></td>}
-                  <td style={{ padding: "11px 14px" }}>{actionsFor(e)}</td>
+                  <td style={{ padding: "11px 14px", textAlign: "right" }}>{rowAction(e)}</td>
                 </tr>
               );
             })}
@@ -367,9 +429,22 @@ export default function Students({
           </tbody>
         </table>
       </Card>
+      </div>
+      {wide && selected && (
+        <aside key={selected.id} className="sos-slide" style={{ width: 320, flexShrink: 0, position: "sticky", top: 0, maxHeight: "calc(100vh - 56px)", overflowY: "auto" }}>
+          <Card T={T} style={{ padding: 20 }}>
+            <button onClick={() => setSelectedId(null)} aria-label="Close details" style={{ float: "right", background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer", marginTop: -6, marginRight: -6 }}>✕</button>
+            {detailBody(selected)}
+          </Card>
+        </aside>
+      )}
+      </div>
+      {!wide && selected && (
+        <Sheet T={T} title="Student" onClose={() => setSelectedId(null)}>{detailBody(selected)}</Sheet>
+      )}
       {isElevated && rows.length > 0 && (
         <div style={{ marginTop: 10, fontSize: 11, color: T.muted }}>
-          A student with two instruments has two rows — each with its own teacher, room, time, fee and deposit. "Delete" removes the student and all of their enrolments; "Stop" ends one enrolment and keeps the history.
+          A student with two instruments has two rows — each with its own teacher, room, time, fee and deposit. Click a row for details, Deposit, Stop and Delete. "Delete" removes the student and all of their enrolments; "Stop" ends one enrolment and keeps the history.
         </div>
       )}
       {modals}

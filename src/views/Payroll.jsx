@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Avatar, Badge, Card, Stat, Inp, Btn, Modal, SectionTitle, Checkbox } from "../components/UI.jsx";
 import { buildMonthRows, buildCollectionSnapshot } from "../domain/payroll.js";
 import { toSnapshotRow, totalsForRows, summariseMonth, snapshotRowToDisplay } from "../domain/months.js";
@@ -25,6 +25,8 @@ export default function Payroll({
   const [discNote,    setDiscNote]    = useState("");
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const [finalizeAck,  setFinalizeAck]  = useState(false);
+  const [drag, setDrag] = useState(null);                  // click-drag over Collection ticks: { target, ids:Set }
+  const dragRef = useRef(null);
   const [deferOpen,   setDeferOpen]   = useState({});
   const [deferTarget, setDeferTarget] = useState({});
   const [error, setError] = useState(null);
@@ -83,11 +85,9 @@ export default function Payroll({
     setBusy(false);
   }
 
-  function toggleCollected(r) {
-    if (!isElevated || finalized || r.covered) return;
-    return run(async () => {
-      const next = !r.collected;
-      await markFeeCollected(r.eid, next, next ? buildCollectionSnapshot(r) : null, currentUser.uid);
+  function setCollected(r, next) {
+    if (!isElevated || finalized || r.covered || r.collected === next) return;
+    return markFeeCollected(r.eid, next, next ? buildCollectionSnapshot(r) : null, currentUser.uid).then(() => {
       log({
         type: "payroll", action: next ? "collect" : "uncollect",
         summary: `${next ? "Collected" : "Un-collected"} ${rm(r.net)} — ${nameFor(r)} (${r.enrolment.instrument ?? "—"}) for ${yearMonth}${r.period.months > 1 ? ` (${r.period.months}-month period)` : ""}`,
@@ -96,6 +96,40 @@ export default function Payroll({
       });
     });
   }
+  const toggleCollected = r => run(() => setCollected(r, !r.collected));
+
+  // Click-drag over the Collection ticks: the first box pressed decides the new state (tick or untick);
+  // every box dragged across is set to it when the mouse is released. Works with mouse, pen and touch.
+  const startDrag = (e, r) => {
+    if (e.button > 0 || r.covered) return;
+    const d = { target: !r.collected, ids: new Set([r.eid]), teacherId: r.teacherId, anchor: r.eid };
+    dragRef.current = d; setDrag({ ...d });
+  };
+  useEffect(() => {
+    const over = e => {
+      const d = dragRef.current; if (!d) return;
+      // The invisible rectangle is the dragging teacher's own table: only that table's rows are ever
+      // considered, so a drag can never reach another teacher. Pointer outside it clamps to its first/last row.
+      const zone = document.querySelector(`[data-collect-zone="${d.teacherId}"]`); if (!zone) return;
+      const els = [...zone.querySelectorAll("[data-collect-row]")];
+      const a = els.findIndex(el => el.dataset.collectRow === d.anchor); if (a < 0) return;
+      let i = els.findIndex(el => { const b = el.getBoundingClientRect(); return e.clientY >= b.top && e.clientY <= b.bottom; });
+      if (i < 0) i = e.clientY < els[0].getBoundingClientRect().top ? 0 : els.length - 1;
+      const ids = new Set(els.slice(Math.min(a, i), Math.max(a, i) + 1).map(el => el.dataset.collectRow));
+      if (ids.size === d.ids.size && [...ids].every(x => d.ids.has(x))) return;
+      d.ids = ids; setDrag({ ...d });
+    };
+    const up = () => {
+      const d = dragRef.current; if (!d) return;
+      dragRef.current = null; setDrag(null);
+      const picked = rows.filter(r => d.ids.has(r.eid) && !r.covered && r.collected !== d.target);
+      if (picked.length) run(async () => { for (const r of picked) await setCollected(r, d.target); });
+    };
+    window.addEventListener("pointermove", over);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => { window.removeEventListener("pointermove", over); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); };
+  });
 
   function openDiscount(r) {
     setError(null);
@@ -254,15 +288,19 @@ export default function Payroll({
 
   const collectionTop = r => {
     if (r.covered) return <div style={{ fontSize: 10, color: T.muted }}>Covered by {formatYM(r.coveredBy)} fee</div>;
+    const tick = drag?.ids.has(r.eid) ? drag.target : r.collected;   // preview while dragging
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <button disabled={!isElevated || finalized || busy} onClick={() => toggleCollected(r)}
+        <button disabled={!isElevated || finalized || busy} data-collect-eid={r.eid}
+          onPointerDown={e => startDrag(e, r)} onMouseDown={e => e.preventDefault()} onClick={e => { if (e.detail === 0) toggleCollected(r); }}
+          title={isElevated && !finalized ? "Click to tick or untick. Drag over several to set them all." : ""}
           style={{
-            width: 16, height: 16, borderRadius: 3, border: `0.6px solid ${r.collected ? "#14CA74" : T.border2}`,
-            background: r.collected ? "rgba(5,193,104,0.2)" : T.input, cursor: isElevated && !finalized ? "pointer" : "default",
+            width: 16, height: 16, borderRadius: 3, border: `0.6px solid ${tick ? "#14CA74" : T.border2}`,
+            background: tick ? "rgba(5,193,104,0.2)" : T.input, cursor: isElevated && !finalized ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: 0,
+            touchAction: "none", userSelect: "none", outline: drag?.ids.has(r.eid) ? `1px solid ${T.accent}` : "none",
           }}>
-          {r.collected && <span style={{ fontSize: 9, color: "#14CA74", lineHeight: 1 }}>✓</span>}
+          {tick && <span style={{ fontSize: 9, color: "#14CA74", lineHeight: 1 }}>✓</span>}
         </button>
         <div>
           <div style={{ fontSize: 10, color: r.collected ? "#14CA74" : T.muted, fontWeight: 500 }}>{r.collected ? "Collected" : "Pending"}</div>
@@ -533,8 +571,9 @@ export default function Payroll({
               </div>
             </div>
             {row.details.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No students assigned.</div>}
+            <div data-collect-zone={row.teacher.id}>
             {row.details.map(d => (
-              <div key={d.eid} style={{ borderTop: `1px solid ${T.border}`, padding: "8px 0" }}>
+              <div key={d.eid} data-collect-row={d.eid} style={{ borderTop: `1px solid ${T.border}`, padding: "8px 0" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{nameFor(d)}</div>
@@ -550,6 +589,7 @@ export default function Payroll({
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>{discountBtn(d)}{deferControls(d)}</div>
               </div>
             ))}
+            </div>
           </Card>
         ))}
         {teacherForm}{discountModal}{finalizeModal}
@@ -583,6 +623,7 @@ export default function Payroll({
           {teacherHeader(row)}
           {row.details.length === 0 && <div style={{ padding: "12px 16px", fontSize: 12, color: T.muted }}>No students billed this month.</div>}
 
+          <div data-collect-zone={row.teacher.id}>
           {row.details.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: colGrid, alignItems: "center", padding: "6px 16px 6px 28px", borderBottom: `0.6px solid ${T.border}` }}>
               {heads.map((h, i) => <div key={i} style={{ fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</div>)}
@@ -590,7 +631,7 @@ export default function Payroll({
           )}
 
           {row.details.map(d => (
-            <div key={d.eid} style={{ borderBottom: `0.6px solid ${T.border}`, padding: "9px 16px 9px 28px", background: d.deferredToMonth ? T.rowAlt : "transparent", opacity: d.covered ? 0.7 : 1 }}>
+            <div key={d.eid} data-collect-row={d.eid} style={{ borderBottom: `0.6px solid ${T.border}`, padding: "9px 16px 9px 28px", background: d.deferredToMonth ? T.rowAlt : "transparent", opacity: d.covered ? 0.7 : 1 }}>
               {/* top row */}
               <div style={{ display: "grid", gridTemplateColumns: colGrid, alignItems: "center" }}>
                 <div style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{nameFor(d)}</div>
@@ -624,6 +665,7 @@ export default function Payroll({
               </div>
             </div>
           ))}
+          </div>
         </Card>
       ))}
 

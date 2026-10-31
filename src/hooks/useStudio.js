@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  collection, doc, setDoc, updateDoc, deleteDoc, deleteField, arrayUnion, arrayRemove, writeBatch, runTransaction, onSnapshot, serverTimestamp,
+  collection, getDocs, doc, setDoc, updateDoc, deleteDoc, deleteField, arrayUnion, arrayRemove, writeBatch, runTransaction, onSnapshot, serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { useCollection } from "./useCollection.js";
@@ -195,22 +195,28 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   }
 
   async function removeStudent(id) {
+    // Deleting a student removes all of their data: enrolments, deposits (any status), attendance,
+    // make-up deferrals and one-off bookings. Finalized month snapshots/revisions are immutable
+    // records and are left as they are.
     const mine = enrolments.items.filter(e => e.studentId === id);
-    const depOf = e => deposits.items.find(d => d.id === e.id);
-    if (mine.some(e => depOf(e)?.status === "held")) {
-      throw new Error("This student has a held deposit. Stop the enrolment so the deposit is applied before deleting.");
+    const eids = new Set(mine.map(e => e.id));
+    const name = nameOf(id);
+    const deferralDocs = (await getDocs(collection(db, "class_deferrals"))).docs
+      .filter(d => d.data().studentId === id || eids.has(d.data().enrolmentId));
+    const refs = [
+      ...mine.map(e => doc(db, "enrolments", e.id)),
+      ...deposits.items.filter(d => eids.has(d.id) || d.studentId === id).map(d => doc(db, "deposits", d.id)),
+      ...attendance.items.filter(a => eids.has(a.enrolmentId)).map(a => doc(db, "attendance", a.id)),
+      ...oneOffs.items.filter(s => s.studentId === id || eids.has(s.enrolmentId)).map(s => doc(db, "one_off_sessions", s.id)),
+      ...deferralDocs.map(d => d.ref),
+      doc(db, "students", id),
+    ];
+    for (let i = 0; i < refs.length; i += 400) {            // batches are limited to 500 writes
+      const batch = writeBatch(db);
+      refs.slice(i, i + 400).forEach(r => batch.delete(r));
+      await batch.commit();
     }
-    if (mine.some(e => ["applied", "forfeited"].includes(depOf(e)?.status))) {
-      throw new Error("This student has deposit history that must be kept (applied/forfeited deposits can't be deleted). Use Stop on their enrolments instead.");
-    }
-    const batch = writeBatch(db);
-    mine.forEach(e => {
-      batch.delete(doc(db, "enrolments", e.id));
-      if (depOf(e)) batch.delete(doc(db, "deposits", e.id));   // only pending deposits reach this point (see firestore.rules)
-    });
-    batch.delete(doc(db, "students", id));
-    await batch.commit();
-    await log({ type: "student", action: "delete", summary: `Deleted student ${nameOf(id)} and ${mine.length} enrolment(s)`, entity: { kind: "student", id } });
+    await log({ type: "student", action: "delete", summary: `Deleted student ${name}, ${mine.length} enrolment(s) and ${refs.length - mine.length - 1} related record(s)`, entity: { kind: "student", id } });
   }
 
   // ── deposits ────────────────────────────────────────────────────────────────

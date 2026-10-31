@@ -97,7 +97,7 @@ service cloud.firestore {
 
     // Deposits: one per enrolment (doc id = enrolmentId). A deposit can only move
     // pending → held → applied/forfeited. Once applied or forfeited the record is immutable
-    // and can never be deleted, which is what makes "applied only once" a data-layer guarantee.
+    // (it can't be edited; it is only removed when its student is deleted).
     match /deposits/{enrolmentId} {
       allow read:   if isAdminOrAbove();
       allow create: if isAdminOrAbove() && request.resource.data.status in ["pending", "held"];
@@ -108,7 +108,8 @@ service cloud.firestore {
                     // the snapshot amount cannot be rewritten at the moment it is applied / forfeited
                     && (request.resource.data.status in ["pending", "held"]
                         || request.resource.data.amount == resource.data.amount);
-      allow delete: if isAdminOrAbove() && resource.data.status == "pending";
+      // Deleting is allowed in any status so that deleting a student removes all of their data.
+      allow delete: if isAdminOrAbove();
     }
 
     // Activity log — anyone signed in may append, only admins read, nobody edits or deletes.

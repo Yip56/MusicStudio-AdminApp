@@ -284,7 +284,7 @@ export default function CalendarView({
 
   const makeupSessions = useMemo(() =>
     (deferrals ?? [])
-      .filter(d => d.makeupDate === selDate)
+      .filter(d => d.makeupDate === selDate && enrolments.some(e => e.id === d.enrolmentId))
       .map(d => {
         const st = enrolments.find(e => e.id === d.enrolmentId);
         return {
@@ -329,7 +329,7 @@ export default function CalendarView({
       const dt = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       counts[dt] = getMergedSessionsForDate(dt, enrolments, attendance).length
         + (oneOffSessions ?? []).filter(s => s.date === dt).length
-        + (deferrals ?? []).filter(d => d.makeupDate === dt).length;
+        + (deferrals ?? []).filter(d => d.makeupDate === dt && enrolments.some(e => e.id === d.enrolmentId)).length;
     }
     return counts;
   }, [calYear, calMonth, enrolments, attendance, oneOffSessions, deferrals]);
@@ -505,12 +505,40 @@ export default function CalendarView({
     </Card>
   );
 
+  // Classes whose room no longer exists (room deleted after a stopped enrolment, or a make-up whose
+  // enrolment is gone). They are in the date badge, so they must be visible somewhere.
+  const orphanSessions = combinedSessions
+    .filter(s => !rooms.some(r => r.id === s.roomId))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
   const DayView = (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmtDate(selDate)}</span>
       </div>
       {rooms.length === 0 && <p style={{ color: T.muted, fontSize: 13 }}>No rooms configured.</p>}
+      {orphanSessions.length > 0 && (
+        <div style={{ marginBottom: 14, border: `1px solid #FDB52A55`, background: "#FDB52A12", borderRadius: 9, padding: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 2 }}>No room</div>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 8 }}>
+            These classes point to a room that no longer exists.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {orphanSessions.map(sess => (
+              <SessionCard key={sess.id} sess={sess}
+                student={students.find(s => s.id === sess.studentId)}
+                enrolment={enrolments.find(e => e.id === sess.enrolmentId)}
+                teacher={teachers.find(t => t.id === sess.teacherId)}
+                room={null}
+                onStatusChange={handleStatusChange}
+                onScheduleMakeup={handleScheduleMakeup}
+                onRemoveDeferral={removeDeferral}
+                onDeleteSession={handleDeleteSession}
+                T={T} currentUser={currentUser} />
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{
         display: "grid",
         gridTemplateColumns: isMobile ? "1fr" : `repeat(${Math.min(rooms.length, 4)}, 1fr)`,

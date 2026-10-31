@@ -209,7 +209,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
             {gradeLabels.map((grade, i) => (
               <tr key={grade}
                 style={{ borderBottom: `0.6px solid ${T.border}`, background: i % 2 === 1 ? T.rowAlt : "transparent" }}
-                onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                onPointerEnter={e => { if (e.pointerType === "mouse") e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => e.currentTarget.style.background = i % 2 === 1 ? T.rowAlt : "transparent"}
               >
                 <td style={{ padding: "11px 14px", fontSize: 13, color: T.text, fontWeight: 500 }}>{grade}</td>

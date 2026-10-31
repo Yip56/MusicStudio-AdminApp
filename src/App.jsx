@@ -24,7 +24,8 @@ import ActivityLogView from "./views/ActivityLogView.jsx";
 import UserManagement from "./views/UserManagement.jsx";
 import Login          from "./views/Login.jsx";
 import AccessDenied   from "./views/AccessDenied.jsx";
-import { Avatar, Badge, Modal, Btn } from "./components/UI.jsx";
+import { Avatar, Badge, Modal, Btn, Sheet } from "./components/UI.jsx";
+import CommandPalette from "./components/CommandPalette.jsx";
 
 const ALL_NAV = [
   { id: "dashboard", label: "Dashboard",     icon: "◈", roles: ["admin", "sysadmin"] },
@@ -39,7 +40,7 @@ const ALL_NAV = [
   { id: "users",     label: "User Mgmt",     icon: "⚙", roles: ["sysadmin"] },
 ];
 
-const MOBILE_PRIMARY = 3; // number of nav items shown in bottom bar before "More"
+const MOBILE_PRIMARY = 4; // number of nav items shown in the floating tab bar before "More"
 
 export default function App() {
   const { theme, toggle } = useTheme();
@@ -51,6 +52,8 @@ export default function App() {
   const [view,              setView]              = useState(null);
   const [notifOpen,         setNotifOpen]         = useState(false);
   const [moreOpen,          setMoreOpen]          = useState(false);
+  const [paletteOpen,       setPaletteOpen]       = useState(false);
+  const [focusStudentId,    setFocusStudentId]    = useState(null);
   const [dirty,             setDirty]             = useState(false);
   const [pendingNav,        setPendingNav]        = useState(null);
   const [payoutPreviewCtx,  setPayoutPreviewCtx]  = useState(null);
@@ -74,6 +77,26 @@ export default function App() {
   const studio = useStudio({ enabled: signedIn, actor: currentUser, fees, contemporaryFees });
   const { students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
           monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, actions, log } = studio;
+
+  // Theme -> CSS variables (hover/selection/solid fallbacks used by index.css) and the browser's status-bar colour
+  useEffect(() => {
+    const r = document.documentElement.style;
+    r.setProperty("--sos-hover", T.hover);
+    r.setProperty("--sos-sel", "rgba(203,60,255,0.08)");
+    r.setProperty("--sos-accent", "#CB3CFF");
+    r.setProperty("--sos-solid", T.panel);
+    r.colorScheme = theme;
+    document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute("content", T.bg));
+  }, [theme]);
+
+  // Ctrl/Cmd+K opens quick search
+  useEffect(() => {
+    const h = e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(o => !o); }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   useEffect(() => {
     if (!dirty) return;
@@ -203,7 +226,7 @@ export default function App() {
     }
     log({
       type: "notification", action: status,
-      summary: `${status === "approved" ? "Approved" : "Rejected"} ${notif.type === "clash_request" ? "room clash request" : notif.type === "grade_request" ? "grade request" : notif.type}`,
+      summary: `${status === "approved" ? "Approved" : "Rejected"} ${notif.type === "clash_request" ? "room clash request" : notif.type === "grade_request" ? "grade update" : notif.type}`,
       entity: { kind: "notification", id: notif.id },
     });
   }
@@ -231,7 +254,7 @@ export default function App() {
   const views = {
     dashboard:      <Dashboard    {...shared} />,
     calendar:       <CalendarView {...shared} sendClashRequest={sendClashRequest} />,
-    students:       <Students     {...shared} sendGradeRequest={sendGradeRequest} />,
+    students:       <Students     {...shared} sendGradeRequest={sendGradeRequest} focusStudentId={focusStudentId} onFocusHandled={() => setFocusStudentId(null)} />,
     payroll:        <Payroll      {...shared} openPayoutPreview={openPayoutPreview} />,
     discounts:      <DiscountsView {...shared} />,
     grades:         <GradesAndFees {...shared} />,
@@ -280,7 +303,7 @@ export default function App() {
             <div key={n.id} style={{ background: T.bg, border: `1px solid ${T.border2}`, borderRadius: 12, padding: "13px 14px" }}>
               <div style={{ marginBottom: 9 }}>
                 <Badge
-                  label={isClash ? "Room Clash Request" : isGrade ? "Grade Update Request" : "Free Trial Booking"}
+                  label={isClash ? "Room Clash Request" : isGrade ? "Update Grade" : "Free Trial Booking"}
                   color={isClash ? "#fb923c" : isGrade ? "#60a5fa" : "#4ade80"}
                   bg={isClash ? "#451a03" : isGrade ? "#0c1a2e" : "#052e16"}
                 />
@@ -296,7 +319,7 @@ export default function App() {
                 )}
                 {isGrade && (
                   <>
-                    Teacher <strong>{fromTeacher?.name ?? "—"}</strong> requests grade update for{" "}
+                    Teacher <strong>{fromTeacher?.name ?? "—"}</strong> wants to update the grade for{" "}
                     <strong>{student?.name ?? "—"}</strong>:{" "}
                     {enrol?.instrument && <>({enrol.instrument}) </>}
                     <strong>{enrol?.grade}</strong> → <strong>{n.requestedGrade}</strong>.{" "}
@@ -345,154 +368,141 @@ export default function App() {
     </>
   );
 
+  const palette = paletteOpen && (
+    <CommandPalette T={T} nav={nav} students={students} enrolments={enrolments} currentUser={currentUser}
+      onClose={() => setPaletteOpen(false)}
+      onPage={navigateTo}
+      onStudent={id => { setFocusStudentId(id); navigateTo("students"); }} />
+  );
+  const unsavedModal = pendingNav !== null && (
+    <Modal T={T} title="Unsaved Changes" onClose={() => setPendingNav(null)}>
+      <p style={{ fontSize: 14, color: T.text, lineHeight: 1.7, marginBottom: 20 }}>
+        You have unsaved changes that will be lost if you navigate away. Are you sure you want to leave?
+      </p>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+        <Btn T={T} variant="ghost" onClick={() => setPendingNav(null)}>Stay and Keep Editing</Btn>
+        <Btn T={T} variant="danger" onClick={() => { setView(pendingNav); setPendingNav(null); setDirty(false); setMoreOpen(false); }}>
+          Leave Without Saving
+        </Btn>
+      </div>
+    </Modal>
+  );
+  const page = <div key={effectiveView} className="sos-view">{views[effectiveView]}</div>;
+
   // ── Mobile layout ─────────────────────────────────────────────────────────────
   if (isMobile) {
     const mobileNavItems = nav.length <= MOBILE_PRIMARY ? nav : nav.slice(0, MOBILE_PRIMARY);
     const moreNavItems   = nav.length > MOBILE_PRIMARY  ? nav.slice(MOBILE_PRIMARY) : [];
-    const showMoreBtn    = true; // always: the drawer holds Sign Out, which every role needs
+    const iconBtn = { background: "none", border: "none", cursor: "pointer", minWidth: 40, minHeight: 40, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", color: T.text };
 
     return (
-      <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Plus Jakarta Sans', 'Segoe UI', sans-serif" }}>
+      <div style={{ minHeight: "100dvh", background: T.bg, color: T.text, fontFamily: "'Plus Jakarta Sans', 'Segoe UI', sans-serif" }}>
 
-        {/* Top strip */}
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, height: 52,
-          background: T.sidebar, borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", padding: "0 16px", zIndex: 100
+        {/* Translucent top bar — content scrolls underneath */}
+        <div className="sos-glass" style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
+          height: "calc(52px + env(safe-area-inset-top))", padding: "env(safe-area-inset-top) 12px 0 16px",
+          background: T.sidebar + "b8", borderBottom: `0.6px solid ${T.border}`,
+          display: "flex", alignItems: "center",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 30, height: 30, background: T.accent, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#0b0b0f" }}>♬</div>
-            <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>StudioOS</span>
+            <div style={{ width: 28, height: 28, background: T.accent, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#0b0b0f" }}>♬</div>
+            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif", letterSpacing: "-0.01em" }}>StudioOS</span>
           </div>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center" }}>
-            {/* Theme toggle */}
-            <button onClick={toggle} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, fontSize: 18 }}>
-              {theme === "dark" ? "☀️" : "🌙"}
-            </button>
-            {/* Bell */}
-            <button onClick={() => setNotifOpen(o => !o)} style={{ background: "none", border: "none", cursor: "pointer", position: "relative", padding: 8 }}>
-              <span style={{ fontSize: 20 }}>🔔</span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 0, alignItems: "center" }}>
+            <button onClick={() => setPaletteOpen(true)} aria-label="Search" style={{ ...iconBtn, fontSize: 17 }}>🔍</button>
+            <button onClick={toggle} aria-label="Toggle theme" style={{ ...iconBtn, fontSize: 18 }}>{theme === "dark" ? "☀️" : "🌙"}</button>
+            <button onClick={() => setNotifOpen(o => !o)} aria-label="Notifications" style={{ ...iconBtn, fontSize: 19 }}>
+              🔔
               {pendingCount > 0 && (
                 <span style={{
-                  position: "absolute", top: 4, right: 4, minWidth: 16, height: 16,
+                  position: "absolute", top: 4, right: 3, minWidth: 16, height: 16,
                   background: "#ef4444", borderRadius: 99, fontSize: 9, fontWeight: 700,
                   color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px"
                 }}>{pendingCount}</span>
               )}
             </button>
-            {/* Avatar */}
-            {currentUser.photoURL
-              ? <img src={currentUser.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", display: "block" }} />
-              : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={32} />
-            }
+            <div style={{ marginLeft: 4 }}>
+              {currentUser.photoURL
+                ? <img src={currentUser.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", display: "block" }} />
+                : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={30} />}
+            </div>
           </div>
         </div>
 
         {/* Main content */}
-        <main style={{ paddingTop: 52, paddingBottom: 60, minHeight: "100vh", overflowY: "auto" }}>
-          <div style={{ padding: 16 }}>
-            {views[effectiveView]}
-          </div>
+        <main style={{ paddingTop: "calc(52px + env(safe-area-inset-top))", paddingBottom: "calc(96px + env(safe-area-inset-bottom))", minHeight: "100dvh" }}>
+          <div style={{ padding: 16 }}>{page}</div>
         </main>
 
-        {/* Bottom nav */}
-        <nav style={{
-          position: "fixed", bottom: 0, left: 0, right: 0,
-          background: T.sidebar, borderTop: `1px solid ${T.border}`,
-          display: "flex", zIndex: 100, height: 60
+        {/* Floating glass tab bar */}
+        <nav className="sos-glass" style={{
+          position: "fixed", left: 12, right: 12, bottom: "calc(10px + env(safe-area-inset-bottom))", height: 62, zIndex: 100,
+          background: T.panel + "b8", border: `0.6px solid ${T.border2}`, borderRadius: 22,
+          boxShadow: "0 12px 30px rgba(0,0,0,0.35)", display: "flex", padding: 4, gap: 2,
         }}>
-          {mobileNavItems.map(n => {
-            const active = effectiveView === n.id;
-            return (
-              <button key={n.id} onClick={() => { navigateTo(n.id); setMoreOpen(false); }}
-                style={{
-                  flex: 1, padding: "8px 4px", border: "none",
-                  background: active ? T.accent + "15" : "transparent",
-                  cursor: "pointer", display: "flex", flexDirection: "column",
-                  alignItems: "center", gap: 3, color: active ? T.accent : T.muted,
-                  fontFamily: "inherit", borderTop: active ? `2px solid ${T.accent}` : "2px solid transparent"
-                }}>
-                <span style={{ fontSize: 17 }}>{n.icon}</span>
-                <span style={{ fontSize: 10, fontWeight: active ? 700 : 400, lineHeight: 1 }}>{n.label}</span>
-              </button>
-            );
-          })}
-          {showMoreBtn && (
-            <button onClick={() => setMoreOpen(o => !o)}
+          {[...mobileNavItems.map(n => ({ ...n, on: effectiveView === n.id, go: () => navigateTo(n.id) })),
+            { id: "__more", label: "More", icon: "⋯", on: moreOpen, go: () => setMoreOpen(true) }].map(n => (
+            <button key={n.id} onClick={n.go} aria-label={n.label} aria-current={n.on ? "page" : undefined}
               style={{
-                flex: 1, padding: "8px 4px", border: "none",
-                background: moreOpen ? T.accent + "15" : "transparent",
-                cursor: "pointer", display: "flex", flexDirection: "column",
-                alignItems: "center", gap: 3, color: moreOpen ? T.accent : T.muted,
-                fontFamily: "inherit", borderTop: moreOpen ? `2px solid ${T.accent}` : "2px solid transparent"
+                flex: 1, border: "none", borderRadius: 18, minWidth: 0,
+                background: n.on ? "rgba(203,60,255,0.14)" : "transparent", color: n.on ? "#CB3CFF" : T.muted,
+                cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
+                fontFamily: "inherit", transition: "transform 0.1s ease-out, background-color 0.15s, color 0.15s",
               }}>
-              <span style={{ fontSize: 17 }}>⋯</span>
-              <span style={{ fontSize: 10, fontWeight: moreOpen ? 700 : 400, lineHeight: 1 }}>More</span>
+              <span style={{ fontSize: 18, lineHeight: 1 }}>{n.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: n.on ? 700 : 500, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{n.label}</span>
             </button>
-          )}
+          ))}
         </nav>
 
-        {/* "More" drawer */}
+        {/* "More" sheet — also holds Sign Out, which every role needs */}
         {moreOpen && (
-          <>
-            <div onClick={() => setMoreOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 98 }} />
-            <div style={{
-              position: "fixed", bottom: 60, left: 0, right: 0,
-              background: T.sidebar, borderTop: `1px solid ${T.border2}`,
-              zIndex: 99, paddingBottom: 4
-            }}>
-              {moreNavItems.map(n => {
-                const active = effectiveView === n.id;
-                return (
-                  <button key={n.id} onClick={() => { navigateTo(n.id); setMoreOpen(false); }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 13, width: "100%",
-                      padding: "14px 20px", border: "none",
-                      background: active ? T.accent + "18" : "transparent",
-                      cursor: "pointer", fontFamily: "inherit",
-                      color: active ? T.accent : T.text, fontSize: 14, fontWeight: active ? 700 : 400
-                    }}>
-                    <span style={{ fontSize: 18 }}>{n.icon}</span>
-                    {n.label}
-                  </button>
-                );
-              })}
-              <div style={{ padding: "10px 20px 6px", borderTop: moreNavItems.length ? `1px solid ${T.border}` : "none", marginTop: moreNavItems.length ? 4 : 0 }}>
-                <button onClick={signOut} style={{
-                  display: "flex", alignItems: "center", gap: 10, background: "none",
-                  border: "none", cursor: "pointer", fontFamily: "inherit", color: T.muted, fontSize: 13
-                }}>↩ Sign Out</button>
+          <Sheet T={T} title="More" onClose={() => setMoreOpen(false)}>
+            {dismiss => (
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {moreNavItems.map(n => {
+                  const active = effectiveView === n.id;
+                  return (
+                    <button key={n.id} onClick={() => { dismiss(); navigateTo(n.id); }}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 14, width: "100%", minHeight: 50,
+                        padding: "0 12px", border: "none", borderRadius: 12,
+                        background: active ? "rgba(203,60,255,0.12)" : "transparent", cursor: "pointer", fontFamily: "inherit",
+                        color: active ? "#CB3CFF" : T.text, fontSize: 15, fontWeight: active ? 700 : 500, textAlign: "left",
+                      }}>
+                      <span style={{ fontSize: 18, width: 24, textAlign: "center" }}>{n.icon}</span>
+                      {n.label}
+                    </button>
+                  );
+                })}
+                <div style={{ borderTop: moreNavItems.length ? `0.6px solid ${T.border}` : "none", marginTop: moreNavItems.length ? 8 : 0, paddingTop: moreNavItems.length ? 8 : 0 }}>
+                  <button onClick={signOut} style={{
+                    display: "flex", alignItems: "center", gap: 14, width: "100%", minHeight: 50, padding: "0 12px",
+                    border: "none", borderRadius: 12, background: "transparent", cursor: "pointer", fontFamily: "inherit",
+                    color: T.muted, fontSize: 15, fontWeight: 500, textAlign: "left",
+                  }}><span style={{ fontSize: 18, width: 24, textAlign: "center" }}>↩</span>Sign Out</button>
+                </div>
               </div>
-            </div>
-          </>
+            )}
+          </Sheet>
         )}
 
-        {pendingNav !== null && (
-          <Modal T={T} title="Unsaved Changes" onClose={() => setPendingNav(null)}>
-            <p style={{ fontSize: 14, color: T.text, lineHeight: 1.7, marginBottom: 20 }}>
-              You have unsaved changes that will be lost if you navigate away. Are you sure you want to leave?
-            </p>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
-              <Btn T={T} variant="ghost" onClick={() => setPendingNav(null)}>Stay and Keep Editing</Btn>
-              <Btn T={T} variant="danger" onClick={() => { setView(pendingNav); setPendingNav(null); setDirty(false); setMoreOpen(false); }}>
-                Leave Without Saving
-              </Btn>
-            </div>
-          </Modal>
-        )}
+        {unsavedModal}
 
         {/* Notification drawer — full screen on mobile */}
         {notifOpen && (
           <>
             <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 149 }} />
-            <div style={{
-              position: "fixed", inset: 0, background: T.panel,
+            <div className="sos-fade" style={{
+              position: "fixed", inset: 0, background: T.panel, paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)",
               zIndex: 150, display: "flex", flexDirection: "column"
             }}>
               {notifDrawerContent}
             </div>
           </>
         )}
+        {palette}
       </div>
     );
   }
@@ -521,32 +531,29 @@ export default function App() {
           </div>
         </div>
 
-        {/* Decorative search bar */}
-        <div style={{ margin: "0 28px 24px", position: "relative" }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: T.muted, pointerEvents: "none" }}>🔍</span>
-          <input
-            readOnly
-            placeholder="Search for..."
-            style={{
-              width: "100%", background: T.input, border: `0.6px solid ${T.border2}`,
-              borderRadius: 4, color: T.muted, padding: "9px 14px 9px 30px",
-              fontSize: 12, outline: "none", fontFamily: "inherit", cursor: "default"
-            }}
-          />
-        </div>
+        {/* Quick search (Ctrl/Cmd+K) */}
+        <button onClick={() => setPaletteOpen(true)} aria-label="Quick search" style={{
+          margin: "0 28px 24px", width: "calc(100% - 56px)", display: "flex", alignItems: "center", gap: 8,
+          background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 4, color: T.muted,
+          padding: "9px 10px", fontSize: 12, fontFamily: "inherit", cursor: "pointer", textAlign: "left",
+        }}>
+          <span style={{ fontSize: 13 }}>🔍</span>
+          <span style={{ flex: 1 }}>Search for…</span>
+          <kbd style={{ fontFamily: "inherit", fontSize: 10, border: `0.6px solid ${T.border2}`, borderRadius: 4, padding: "1px 5px" }}>Ctrl K</kbd>
+        </button>
 
         <nav style={{ flex: 1, padding: "0 8px" }}>
           {nav.map(n => {
             const active = effectiveView === n.id;
             return (
-              <button key={n.id} onClick={() => navigateTo(n.id)} style={{
+              <button key={n.id} onClick={() => navigateTo(n.id)} className="sos-nav" aria-current={active ? "page" : undefined} style={{
                 display: "flex", alignItems: "center", width: "100%",
                 height: 42, padding: "0 0 0 14px", border: "none",
                 borderLeft: active ? "2px solid #CB3CFF" : "2px solid transparent",
-                background: "transparent",
+                ...(active ? { background: "rgba(203,60,255,0.12)" } : {}),
                 cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                color: active ? "#CB3CFF" : T.muted, fontWeight: 500, fontSize: 14,
-                borderRadius: 7, transition: "color 0.12s"
+                color: active ? "#CB3CFF" : T.muted, fontWeight: active ? 600 : 500, fontSize: 14,
+                borderRadius: 7
               }}>
                 <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{n.icon}</span>
                 {n.label}
@@ -622,22 +629,11 @@ export default function App() {
 
       {/* Main content */}
       <main style={{ flex: 1, padding: 28, overflowY: "auto", maxHeight: "100vh" }}>
-        {views[effectiveView]}
+        {page}
       </main>
 
-      {pendingNav !== null && (
-        <Modal T={T} title="Unsaved Changes" onClose={() => setPendingNav(null)}>
-          <p style={{ fontSize: 14, color: T.text, lineHeight: 1.7, marginBottom: 20 }}>
-            You have unsaved changes that will be lost if you navigate away. Are you sure you want to leave?
-          </p>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
-            <Btn T={T} variant="ghost" onClick={() => setPendingNav(null)}>Stay and Keep Editing</Btn>
-            <Btn T={T} variant="danger" onClick={() => { setView(pendingNav); setPendingNav(null); setDirty(false); }}>
-              Leave Without Saving
-            </Btn>
-          </div>
-        </Modal>
-      )}
+      {unsavedModal}
+      {palette}
     </div>
   );
 }

@@ -279,7 +279,7 @@ export default function ArchiveView({
         return (
           <Card key={n.id} T={T} style={{ marginBottom: 10, padding: "12px 16px", border: `0.6px solid ${T.border2}`, borderRadius: 10 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
-              <Badge label={isClash ? "Room Clash Request" : n.type === "grade_request" ? "Grade Update Request" : n.type} color={isClash ? "#fb923c" : "#60a5fa"} bg={isClash ? "#451a03" : "#0c1a2e"} />
+              <Badge label={isClash ? "Room Clash Request" : n.type === "grade_request" ? "Update Grade" : n.type} color={isClash ? "#fb923c" : "#60a5fa"} bg={isClash ? "#451a03" : "#0c1a2e"} />
               <Badge label={ok ? "Approved" : "Rejected"} color={ok ? "#14CA74" : "#FF5A65"} bg={ok ? "rgba(5,193,104,0.2)" : "rgba(255,90,101,0.2)"} />
               <span style={{ fontSize: 11, color: T.muted, marginLeft: "auto" }}>{fmtTs(n.resolvedAt)}</span>
             </div>

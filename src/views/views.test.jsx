@@ -18,6 +18,8 @@ import ArchiveView from "./ArchiveView.jsx";
 import ActivityLogView from "./ActivityLogView.jsx";
 import UserManagement from "./UserManagement.jsx";
 import EnrolmentForm from "../components/EnrolmentForm.jsx";
+import CommandPalette from "../components/CommandPalette.jsx";
+import { Sheet } from "../components/UI.jsx";
 
 const T = getTokens("dark");
 const dow = new Date(TODAY + "T00:00").getDay();
@@ -87,7 +89,7 @@ describe("views render with realistic data", () => {
     expect(out).toContain("Noah Lee");
     expect(out).not.toContain("Deposit held");
     expect(out).not.toContain("Registration incomplete");
-    expect(out).toContain("Request Grade");
+    expect(out).toContain("Update Grade");
   });
 
   it("Calendar: the two-instrument student appears twice on the same day, each at its own time and room", () => {
@@ -97,6 +99,21 @@ describe("views render with realistic data", () => {
     expect(out).toContain("11:00 – 12:00");
     expect(out).toContain("Piano Room");
     expect(out).toContain("Drum Room");
+  });
+
+  it("Calendar: a class whose room was deleted still shows, under 'No room'", () => {
+    const orphan = [mk("e9", "s2", "Drum", "t2", "gone", "16:00")];
+    const out = html(CalendarView, { enrolments: orphan });
+    expect(out).toContain("No room");
+    expect(out).toContain("Noah Lee");
+    expect(html(CalendarView)).not.toContain("No room");
+  });
+
+  it("Calendar: a make-up whose enrolment no longer exists is ignored", () => {
+    const stale = [{ id: "d1", enrolmentId: "gone", studentId: "x", teacherId: "t1", originalDate: "2026-09-26", makeupDate: TODAY }];
+    const out = html(CalendarView, { deferrals: stale });
+    expect(out).not.toContain("Makeup");
+    expect(out).not.toContain("No room");
   });
 
   it("Calendar (teacher): other teachers' classes show as Occupied", () => {
@@ -216,5 +233,38 @@ describe("EnrolmentForm", () => {
     const out = form({ instruments: [] });
     expect(out).toContain("No instruments are set up yet");
     expect(out).toMatch(/<button[^>]*disabled[^>]*>Register Student/);
+  });
+});
+
+describe("UX layer (sheet, palette, filters)", () => {
+  it("Students: filter chips and one primary action per row", () => {
+    const out = html(Students);
+    expect(out).toContain("Deposit pending");   // admin-only chip
+    expect(out).toContain("aria-pressed");
+    expect(out).not.toContain(">Stop<");        // Stop/Delete moved into the detail panel
+    expect(html(Students, { currentUser: teacher })).not.toContain("Deposit pending");
+  });
+
+  it("Students (mobile): cards open a sheet instead of expanding in place", () => {
+    const out = html(Students, { isMobile: true });
+    expect(out).toContain('role="button"');
+    expect(out).not.toContain("▼");
+  });
+
+  it("Command palette lists the pages; teachers only get pages they may open", () => {
+    const nav = [{ id: "calendar", label: "Calendar", icon: "▦" }, { id: "students", label: "Students", icon: "♪" }];
+    const out = renderToStaticMarkup(
+      <CommandPalette T={T} nav={nav} students={students} enrolments={enrolments} currentUser={teacher}
+        onClose={() => {}} onPage={() => {}} onStudent={() => {}} />);
+    expect(out).toContain("Calendar");
+    expect(out).toContain("Students");
+    expect(out).not.toContain("Payroll");
+  });
+
+  it("Sheet renders an accessible dialog with a close control", () => {
+    const out = renderToStaticMarkup(<Sheet T={T} title="More" onClose={() => {}}>{dismiss => <button onClick={dismiss}>Go</button>}</Sheet>);
+    expect(out).toContain('role="dialog"');
+    expect(out).toContain('aria-label="Close"');
+    expect(out).toContain(">Go<");
   });
 });

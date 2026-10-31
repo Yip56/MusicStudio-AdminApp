@@ -398,7 +398,7 @@ export default function PayoutPreview({
                 {details.map((d, i) => (
                   <tr
                     key={d.eid}
-                    onMouseEnter={() => setHoveredRow(i)}
+                    onPointerEnter={e => { if (e.pointerType === "mouse") setHoveredRow(i); }}
                     onMouseLeave={() => setHoveredRow(null)}
                     style={{
                       background: hoveredRow === i ? T.hover : "transparent",

@@ -1,0 +1,67 @@
+/* Platform-layer polish: touch, motion, materials. Component styling stays inline with the T tokens. */
+:root {
+  --sos-hover: #212C4D;
+  --sos-sel: rgba(203, 60, 255, 0.08);
+  --sos-accent: #CB3CFF;
+  --sos-solid: #0B1739;
+}
+
+html, body { overscroll-behavior: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { -webkit-font-smoothing: antialiased; }
+
+/* Touch: no grey tap flash, no 300ms delay, no text selection when long-pressing a control */
+button, a, select, label, summary, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; transition: transform 0.1s ease-out; }
+button:not(:disabled):active, .sos-press:active { transform: scale(0.97); }
+.sos-press { transition: transform 0.1s ease-out; cursor: pointer; }
+.sos-press:active { transform: scale(0.985); }
+
+/* iOS zooms the page into any input under 16px */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* Type: tighten as it grows */
+h1, h2, h3 { letter-spacing: -0.02em; }
+h2 { line-height: 1.15; }
+
+/* Keyboard focus (inputs keep their own purple ring) */
+:focus-visible { outline: 2px solid var(--sos-accent); outline-offset: 2px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+
+/* Hover only where a real pointer exists, so it never sticks after a tap */
+.sos-row { transition: background-color 0.12s; }
+.sos-nav { background-color: transparent; transition: background-color 0.12s, color 0.12s; }
+@media (hover: hover) and (pointer: fine) {
+  .sos-row:hover, .sos-nav:hover { background-color: var(--sos-hover); }
+}
+.sos-row--sel, .sos-row--sel:hover { background-color: var(--sos-sel) !important; }
+
+/* Translucent material */
+.sos-glass { -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%); }
+
+/* Entrances: ease-out, short, transform + opacity only */
+@keyframes sos-fade   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sos-pop    { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes sos-view   { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes sos-slide  { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+.sos-fade  { animation: sos-fade 0.18s ease-out; }
+.sos-pop   { animation: sos-pop 0.18s ease-out; }
+.sos-view  { animation: sos-view 0.2s ease-out; }
+.sos-slide { animation: sos-slide 0.22s cubic-bezier(0.2, 0.9, 0.25, 1); }
+
+.sos-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.sos-chips::-webkit-scrollbar { display: none; }
+
+/* Accessibility signals */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  button, .sos-press { transition: none; }
+  .sos-sheet { transform: none !important; transition: opacity 0.15s linear !important; }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .sos-glass { background: var(--sos-solid) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+}
