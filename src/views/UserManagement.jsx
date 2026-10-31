@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, setDoc, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, Stat, SectionTitle, THead, Checkbox } from "../components/UI.jsx";
-import { GRADE_LABELS, INSTRUMENTS, DAYS_OF_WEEK, HOURS } from "../data/seed.js";
-import { uid } from "../utils/helpers.js";
 
 const ROLE_COLOR = {
   teacher:  { color: "#60a5fa", bg: "#60a5fa18" },
@@ -13,24 +11,13 @@ const ROLE_COLOR = {
 };
 
 const BLANK_AUTH    = { displayName: "", email: "", linkedTeacherId: "" };
-const BLANK_TEACHER = { displayName: "", email: "", instruments: ["Piano"], commissionPct: 60 };
-const BLANK_STUDENT = {
-  name: "", instrument: "Piano", grade: "No Grade", teacherId: "",
-  attendanceBased: false,
-  schedule: { dayOfWeek: 6, startTime: "09:00", endTime: "10:00", roomId: "" },
-};
-
-function blankForRole(role, teachers, rooms) {
+const BLANK_TEACHER = { displayName: "", email: "", instruments: [], commissionPct: 60 };
+function blankForRole(role) {
   if (role === "teacher") return { ...BLANK_TEACHER };
-  if (role === "student") return {
-    ...BLANK_STUDENT,
-    teacherId: teachers[0]?.id ?? "",
-    schedule: { ...BLANK_STUDENT.schedule, roomId: rooms[0]?.id ?? "" },
-  };
   return { ...BLANK_AUTH };
 }
 
-export default function UserManagement({ teachers, setTeachers, students, setStudents, rooms, T, currentUser, isMobile, setDirty }) {
+export default function UserManagement({ teachers, enrolments, students, instruments, actions, goTo, T, currentUser, isMobile, setDirty }) {
   const [users,           setUsers]           = useState([]);
   const [invites,         setInvites]         = useState([]);
   const [formRole,        setFormRole]        = useState("admin");
@@ -56,18 +43,13 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
 
   function handleRoleChange(role) {
     setFormRole(role);
-    setForm(blankForRole(role, teachers, rooms));
+    setForm(blankForRole(role));
     setTransferTarget(null);
     setError(null);
     setSuccess(null);
   }
 
   function markDirty() { setDirty?.(true); }
-
-  function setSched(key, val) {
-    markDirty();
-    setForm(f => ({ ...f, schedule: { ...f.schedule, [key]: val } }));
-  }
 
   function toggleInstrument(inst) {
     markDirty();
@@ -91,7 +73,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       setForm({
         displayName:   entry.displayName ?? "",
         email:         "",
-        instruments:   profile?.instruments  ?? ["Piano"],
+        instruments:   profile?.instruments  ?? [],
         commissionPct: profile?.commissionPct ?? 60,
       });
     } else {
@@ -105,7 +87,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
 
   function cancelTransfer() {
     setTransferTarget(null);
-    setForm(blankForRole(formRole, teachers, rooms));
+    setForm(blankForRole(formRole));
     setError(null);
     setSuccess(null);
     setDirty?.(false);
@@ -113,16 +95,6 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
 
   async function createAccount() {
     setError(null); setSuccess(null);
-
-    // ── Student: no account needed, just add to state ────────────────────────
-    if (formRole === "student") {
-      if (!form.name?.trim()) { setError("Name is required."); return; }
-      setStudents(prev => [...prev, { ...form, id: uid(), name: form.name.trim() }]);
-      setSuccess(`Student "${form.name.trim()}" added.`);
-      setForm(blankForRole("student", teachers, rooms));
-      setDirty?.(false);
-      return;
-    }
 
     // ── Teacher / Admin / Sysadmin: create invite in Firestore ───────────────
     const name  = form.displayName?.trim();
@@ -141,21 +113,10 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
       let teacherId = null;
 
       if (formRole === "teacher") {
-        if (transferTarget?.teacherId) {
-          // Reuse and update existing teacher profile
-          teacherId = transferTarget.teacherId;
-          setTeachers(prev => prev.map(t => t.id === teacherId
-            ? { ...t, name, instruments: form.instruments, commissionPct: Number(form.commissionPct) || 60 }
-            : t
-          ));
-        } else {
-          teacherId = uid();
-          setTeachers(prev => [...prev, {
-            id: teacherId, name,
-            instruments:   form.instruments,
-            commissionPct: Number(form.commissionPct) || 60,
-          }]);
-        }
+        // Reuse the existing teacher profile on transfer, otherwise create one
+        teacherId = await actions.saveTeacher(transferTarget?.teacherId ?? null, {
+          name, instruments: form.instruments, commissionPct: form.commissionPct,
+        });
       } else {
         teacherId = form.linkedTeacherId || null;
       }
@@ -182,7 +143,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
         setSuccess(`Invite created for ${email}. They sign in with Google using that Gmail to activate their account.`);
       }
 
-      setForm(blankForRole(formRole, teachers, rooms));
+      setForm(blankForRole(formRole));
       setDirty?.(false);
     } catch (err) {
       setError(err.message);
@@ -191,20 +152,10 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   }
 
   async function saveEdit() {
-    if (editModal._type === "student") {
-      setStudents(prev => prev.map(s => s.id === editModal.id
-        ? { ...s, name: editForm.displayName, instrument: editForm.instrument, grade: editForm.grade, teacherId: editForm.teacherId, attendanceBased: editForm.attendanceBased, schedule: editForm.schedule }
-        : s
-      ));
-      setEditModal(null);
-      setDirty?.(false);
-      return;
-    }
     if (editModal._type === "teacher_profile") {
-      setTeachers(prev => prev.map(t => t.id === editModal.id
-        ? { ...t, name: editForm.displayName, instruments: editForm.instruments ?? t.instruments, commissionPct: Number(editForm.commissionPct) || t.commissionPct }
-        : t
-      ));
+      try {
+        await actions.saveTeacher(editModal.id, { name: editForm.displayName, instruments: editForm.instruments ?? [], commissionPct: editForm.commissionPct });
+      } catch (err) { setError(err.message); return; }
       setEditModal(null);
       setDirty?.(false);
       return;
@@ -223,13 +174,8 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   }
 
   async function deleteAccount() {
-    if (deleteModal._type === "student") {
-      setStudents(prev => prev.filter(s => s.id !== deleteModal.id));
-      setDeleteModal(null);
-      return;
-    }
     if (deleteModal._type === "teacher_profile") {
-      setTeachers(prev => prev.filter(t => t.id !== deleteModal.id));
+      try { await actions.removeTeacher(deleteModal.id); } catch (err) { setError(err.message); }
       setDeleteModal(null);
       return;
     }
@@ -243,9 +189,9 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
   const studentRows = students.map(s => ({
     id: s.id, _type: "student",
     displayName: s.name, email: null, role: "student",
-    teacherId: s.teacherId,
-    instrument: s.instrument, grade: s.grade,
-    attendanceBased: s.attendanceBased, schedule: s.schedule,
+    enrolmentSummary: enrolments
+      .filter(e => e.studentId === s.id && (e.status !== "stopped"))
+      .map(e => `${e.instrument ?? "—"} · ${e.grade}`).join("  /  "),
   }));
 
   const teacherRows = teachers.map(t => ({
@@ -338,7 +284,6 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
             <option value="admin">Admin</option>
             <option value="sysadmin">Sysadmin</option>
             <option value="teacher">Teacher</option>
-            <option value="student">Student</option>
           </Sel>
 
           {/* ── Admin / Sysadmin ─────────────────────────────────────────────── */}
@@ -385,7 +330,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                   Instruments (select all that apply)
                 </div>
                 <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                  {INSTRUMENTS.map(inst => {
+                  {instruments.map(inst => {
                     const active = form.instruments?.includes(inst);
                     return (
                       <button key={inst} onClick={() => toggleInstrument(inst)}
@@ -406,64 +351,19 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
             </>
           )}
 
-          {/* ── Student ──────────────────────────────────────────────────────── */}
-          {formRole === "student" && (
-            <>
-              <Inp T={T} label="Full Name" value={form.name}
-                onChange={e => { markDirty(); setForm(f => ({ ...f, name: e.target.value })); }} />
-              <div style={{ display: "flex", gap: 11 }}>
-                <Sel T={T} label="Instrument" value={form.instrument}
-                  onChange={e => { markDirty(); setForm(f => ({ ...f, instrument: e.target.value })); }}>
-                  {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
-                </Sel>
-                <Sel T={T} label="Grade" value={form.grade}
-                  onChange={e => { markDirty(); setForm(f => ({ ...f, grade: e.target.value })); }}>
-                  {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
-                </Sel>
-              </div>
-              <Sel T={T} label="Teacher" value={form.teacherId}
-                onChange={e => { markDirty(); setForm(f => ({ ...f, teacherId: e.target.value })); }}>
-                <option value="">— Select teacher —</option>
-                {teachers.map(t => <option key={t.id} value={t.id}>{t.name} ({t.instruments.join(", ")})</option>)}
-              </Sel>
-              <div style={{ background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 10, padding: 14 }}>
-                <SectionTitle T={T}>Recurring Class Schedule</SectionTitle>
-                <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-                  <Sel T={T} label="Day of Week" value={form.schedule?.dayOfWeek ?? 6}
-                    onChange={e => setSched("dayOfWeek", Number(e.target.value))}>
-                    {DAYS_OF_WEEK.map((d, i) => <option key={d} value={i}>{d}</option>)}
-                  </Sel>
-                  <div style={{ display: "flex", gap: 11 }}>
-                    <Sel T={T} label="Start Time" value={form.schedule?.startTime ?? "09:00"}
-                      onChange={e => setSched("startTime", e.target.value)}>
-                      {HOURS.map(h => <option key={h}>{h}</option>)}
-                    </Sel>
-                    <Sel T={T} label="End Time" value={form.schedule?.endTime ?? "10:00"}
-                      onChange={e => setSched("endTime", e.target.value)}>
-                      {HOURS.map(h => <option key={h}>{h}</option>)}
-                    </Sel>
-                  </div>
-                  <Sel T={T} label="Room" value={form.schedule?.roomId ?? ""}
-                    onChange={e => setSched("roomId", e.target.value)}>
-                    <option value="">— Select room —</option>
-                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.type})</option>)}
-                  </Sel>
-                </div>
-              </div>
-              <Checkbox T={T}
-                label="Attendance-based commission (fee prorated by classes attended)"
-                checked={form.attendanceBased}
-                onChange={() => { markDirty(); setForm(f => ({ ...f, attendanceBased: !f.attendanceBased })); }}
-              />
-            </>
+          {formRole === "teacher" && instruments.length === 0 && (
+            <div style={{ fontSize: 11, color: "#fbbf24" }}>No instruments exist yet — add them on the Grades & Fees page first.</div>
           )}
+          <div style={{ fontSize: 11, color: T.muted }}>
+            Students are registered on the Students page (name, instrument, teacher, class time and deposit), not here.
+          </div>
 
           {error   && <div style={{ fontSize: 12, color: "#f87171" }}>{error}</div>}
           {success && <div style={{ fontSize: 12, color: "#4ade80", lineHeight: 1.6 }}>{success}</div>}
 
           <div style={{ display: "flex", gap: 9 }}>
             <Btn T={T} onClick={createAccount} style={{ background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>
-              {saving ? "Saving…" : transferTarget ? "Create & Transfer" : formRole === "student" ? "Add Student" : "Create Invite"}
+              {saving ? "Saving…" : transferTarget ? "Create & Transfer" : "Create Invite"}
             </Btn>
             {transferTarget && <Btn T={T} variant="ghost" onClick={cancelTransfer}>Cancel Transfer</Btn>}
           </div>
@@ -515,7 +415,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
               const isTransferSource = transferTarget?.id === entry.id;
 
               let emailCell = entry.email ?? "—";
-              if (isStudent)        emailCell = `${entry.instrument} · ${entry.grade}`;
+              if (isStudent)        emailCell = entry.enrolmentSummary || "No active enrolment";
               if (isTeacherProfile) emailCell = `${entry.instruments?.join(", ") ?? "—"} · ${entry.commissionPct}% comm`;
 
               return (
@@ -551,13 +451,15 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                   </td>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }}
-                        onClick={() => { setEditModal(entry); setEditForm({ ...entry }); }}>Edit</Btn>
+                      {isStudent
+                        ? <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => goTo?.("students")}>Manage in Students</Btn>
+                        : <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }}
+                            onClick={() => { setEditModal(entry); setEditForm({ ...entry }); }}>Edit</Btn>}
                       {!isStudent && !isTeacherProfile && (isPending || entry.id !== currentUser.uid) && (
                         <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11, color: "#4ade80", borderColor: "#4ade8030" }}
                           onClick={() => startTransfer(entry)}>Transfer</Btn>
                       )}
-                      {(isStudent || isTeacherProfile || isPending || entry.id !== currentUser.uid) && (
+                      {(isTeacherProfile || isPending || (!isStudent && entry.id !== currentUser.uid)) && (
                         <Btn T={T} variant="danger" style={{ padding: "4px 9px", fontSize: 11 }}
                           onClick={() => setDeleteModal(entry)}>Delete</Btn>
                       )}
@@ -608,7 +510,7 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
             <div>
               <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Instruments</div>
               <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-                {INSTRUMENTS.map(inst => {
+                {instruments.map(inst => {
                   const active = editForm.instruments?.includes(inst);
                   return (
                     <button key={inst} onClick={() => {
@@ -628,66 +530,10 @@ export default function UserManagement({ teachers, setTeachers, students, setStu
                 })}
               </div>
             </div>
-            <Inp T={T} label="Commission %" type="number" min={0} max={100}
+            <Inp T={T} label="Default Commission % (0–100)" type="number" min={0} max={100}
               value={editForm.commissionPct ?? 60}
               onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, commissionPct: e.target.value })); }} />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
-              <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
-              <Btn T={T} onClick={saveEdit}>Save Changes</Btn>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {editModal && editModal._type === "student" && (
-        <Modal T={T} title="Edit Student" onClose={() => { setEditModal(null); setDirty?.(false); }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Inp T={T} label="Full Name" value={editForm.displayName ?? ""}
-              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, displayName: e.target.value })); }} />
-            <div style={{ display: "flex", gap: 11 }}>
-              <Sel T={T} label="Instrument" value={editForm.instrument ?? "Piano"}
-                onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, instrument: e.target.value })); }}>
-                {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
-              </Sel>
-              <Sel T={T} label="Grade" value={editForm.grade ?? "No Grade"}
-                onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, grade: e.target.value })); }}>
-                {GRADE_LABELS.map(g => <option key={g}>{g}</option>)}
-              </Sel>
-            </div>
-            <Sel T={T} label="Teacher" value={editForm.teacherId ?? ""}
-              onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, teacherId: e.target.value })); }}>
-              <option value="">— Select teacher —</option>
-              {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </Sel>
-            <div style={{ background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 10, padding: 14 }}>
-              <SectionTitle T={T}>Recurring Class Schedule</SectionTitle>
-              <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-                <Sel T={T} label="Day of Week" value={editForm.schedule?.dayOfWeek ?? 6}
-                  onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, dayOfWeek: Number(e.target.value) } })); }}>
-                  {DAYS_OF_WEEK.map((d, i) => <option key={d} value={i}>{d}</option>)}
-                </Sel>
-                <div style={{ display: "flex", gap: 11 }}>
-                  <Sel T={T} label="Start Time" value={editForm.schedule?.startTime ?? "09:00"}
-                    onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, startTime: e.target.value } })); }}>
-                    {HOURS.map(h => <option key={h}>{h}</option>)}
-                  </Sel>
-                  <Sel T={T} label="End Time" value={editForm.schedule?.endTime ?? "10:00"}
-                    onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, endTime: e.target.value } })); }}>
-                    {HOURS.map(h => <option key={h}>{h}</option>)}
-                  </Sel>
-                </div>
-                <Sel T={T} label="Room" value={editForm.schedule?.roomId ?? ""}
-                  onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, schedule: { ...f.schedule, roomId: e.target.value } })); }}>
-                  <option value="">— Select room —</option>
-                  {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.type})</option>)}
-                </Sel>
-              </div>
-            </div>
-            <Checkbox T={T}
-              label="Attendance-based commission (fee prorated by classes attended)"
-              checked={editForm.attendanceBased ?? false}
-              onChange={() => { setDirty?.(true); setEditForm(f => ({ ...f, attendanceBased: !f.attendanceBased })); }}
-            />
+            {error && <div style={{ fontSize: 12, color: "#f87171" }}>{error}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
               <Btn T={T} onClick={saveEdit}>Save Changes</Btn>

@@ -2,23 +2,43 @@
 
 ## Project Overview
 - **Name:** StudioOS
-- **Purpose:** Music studio admin panel — manage students, teachers, rooms, payroll, attendance, scheduling
-- **Stack:** React 18, Vite 5, pure CSS-in-JS (no external UI library)
-- **Backend:** Firebase Auth (Google Sign-In) + Firestore (rules deployed, project: `ark-music-portal`)
-- **In-memory state:** students, teachers, rooms, attendance, one-off sessions (not yet persisted to Firestore)
-- **Firestore-persisted state:** `users`, `notifications`, `invites`, `payroll_months`, `class_deferrals`, **`fees`** (classical + contemporary fee schedules)
+- **Purpose:** Music studio admin panel — students & enrolments, teachers, rooms, scheduling, attendance, fees, deposits, payroll, month-end archive
+- **Stack:** React 18, Vite 5, pure CSS-in-JS (no UI library). Tests: Vitest (`npm test`).
+- **Backend:** Firebase Auth (Google Sign-In) + Firestore (project `ark-music-portal`, region asia-southeast1) + one Cloud Function (`getPublicFees`)
+- **All data is in Firestore.** There is no seed/demo data and no in-memory domain state any more (v7). A fresh studio starts empty: add instruments on **Grades & Fees** first, then rooms, teachers, students.
 
 ---
 
-## Running the Project
+## Commands
 
 ```bash
-npm run dev          # start dev server at http://localhost:5173
+npm run dev          # dev server at http://localhost:5173
+npm test             # Vitest: domain unit tests + server-render smoke tests of every view (no network)
 npm run build        # production build → dist/
-firebase deploy --only firestore:rules   # push security rules
-firebase deploy --only hosting           # deploy built app (run build first)
-npm run build && firebase deploy --only hosting  # build + deploy in one go
+firebase deploy --only firestore:rules   # push security rules (REQUIRED after pulling v7 — new collections are rule-protected)
+firebase deploy --only hosting           # deploy built app (build first)
+firebase deploy --only functions         # deploy getPublicFees
 ```
+
+There are **no data migrations** to run for v7: the previous students/teachers/rooms lived only in memory (seed data), so nothing persisted needs converting. Old `payroll_months` / `class_deferrals` docs written during development refer to demo ids (`s1`…`s5`); they are ignored by the new code and can be deleted in the Firebase console. Instruments that disappear from Grades & Fees are cleaned out of teachers/rooms/enrolments automatically (`cleanupInstruments`, below). Use **Archive → Download full backup** before any bulk change.
+
+---
+
+## Architecture rule: the Enrolment is the central record
+
+```
+students/{id}       the person: name, phone, notes
+enrolments/{id}     student + instrument — owns teacher, room, weekly slot, grade, syllabus, fee,
+                    billing term, commission, status, deposit (1 student : 1..n enrolments)
+deposits/{enrolmentId}   one registration deposit per enrolment (doc id == enrolment id)
+```
+
+Never put grade/schedule/fee/commission on the student. A student with two instruments has two enrolments → two calendar cards, two payroll rows, two deposits.
+
+### Layers (keep them separate)
+- `src/domain/*` — **pure logic, no React, no Firebase, fully unit-tested.** All business rules live here.
+- `src/hooks/useStudio.js` — the only place that writes studio data to Firestore; validates via `domain/`, writes an `activity_log` entry per change. Views call `actions.*`.
+- `src/views`, `src/components` — UI only. Pass `T` (theme tokens) everywhere; never hardcode colours.
 
 ---
 
@@ -26,29 +46,36 @@ npm run build && firebase deploy --only hosting  # build + deploy in one go
 
 ```
 src/
-  firebase.js              Firebase init (auth, db, googleProvider, authSecondary)
-  App.jsx                  Root layout, auth gating, sidebar, notification drawer
-  data/seed.js             All constants + seed data (GRADE_LABELS, STATUS_META, etc.)
-  utils/
-    helpers.js             Pure functions: uid(), timesOverlap(), calcStudentPayroll(), etc.
-    tokens.js              Dark/light theme token objects + getTokens(theme)
+  firebase.js                Firebase init
+  App.jsx                    Auth gate, nav, notification drawer, wires useStudio → views via `shared` props
+  data/
+    seed.js                  CONSTANTS ONLY (grade labels, syllabi, days, hours, status meta). No demo data.
+    activity.js              logActivity() → activity_log
+    backup.js                downloadBackup() — whole-database JSON export
+  domain/                    (pure, tested — *.test.js beside each)
+    time.js                  "HH:MM"/"YYYY-MM" maths, overlap
+    instruments.js           instrument list = keys of fee tables; delete-blocking; dangling-reference cleanup
+    enrolments.js            schedule rendering, conflict detection, validation, create/stop, collected-fee warning
+    billing.js               billing terms, periods, fees, commission, discounts, fee/term/commission edit patches
+    payroll.js               calcLine + buildEnrolmentRow/buildMonthRows + collection snapshot
+    deposits.js              deposit lifecycle & reporting
+    months.js                finalize snapshot rows, revisions, diffs, affected months
+    audit.js                 activity-log entry builder + diff
   hooks/
-    useTheme.js            Theme toggle, persists to localStorage
-    useAuth.js             Google Sign-In, Firestore user doc fetch, role resolution
-    useNotifications.js    Real-time Firestore listener for pending notifications
-  components/UI.jsx        Shared primitives: Avatar, Badge, Card, Stat, Inp, Sel, Btn, Modal, etc.
+    useAuth.js useTheme.js useMobile.js useNotifications.js useClassDeferrals.js
+    useCollection.js         generic live collection listener
+    useStudio.js             ALL studio data + write actions (see below)
+    usePayrollMonth.js       ledger for one month: payroll_months/{YYYY-MM}
+  components/
+    UI.jsx                   Avatar, Badge, Card, Stat, Inp, Sel, Btn, Modal, THead, Checkbox…
+    EnrolmentForm.jsx        register student / add instrument / edit enrolment (one form, 3 modes)
   views/
-    Login.jsx              Full-screen sign-in card (shown when not authenticated)
-    AccessDenied.jsx       Shown when user has no Firestore doc (role = "denied")
-    Dashboard.jsx          Overview stats + today's sessions
-    Students.jsx           Student CRUD + grade request flow (teacher-scoped)
-    CalendarView.jsx       Month+day calendar, room columns, attendance picker, session booking
-    Payroll.jsx            Per-teacher commission breakdown (teacher-scoped)
-    GradesAndFees.jsx      Grade editor + per-instrument fee table (admin/sysadmin only)
-    RoomsView.jsx          Room CRUD, availability panel, free/occupied filter, timeline
-    UserManagement.jsx     Sysadmin-only: create/edit/revoke Firebase Auth + Firestore accounts
-firestore.rules            Firestore security rules (source of truth — deploy via CLI)
-firestore.indexes.json     Firestore composite index definitions
+    Dashboard Students CalendarView Payroll PayoutPreview GradesAndFees RoomsView
+    DiscountsView ArchiveView ActivityLogView UserManagement Login AccessDenied
+    views.test.jsx           server-render smoke tests
+docs/                        user guides (see Docs)
+firestore.rules              security rules — source of truth
+functions/index.js           getPublicFees
 ```
 
 ---
@@ -57,196 +84,165 @@ firestore.indexes.json     Firestore composite index definitions
 
 | Role | Views | Permissions |
 |---|---|---|
-| `teacher` | Calendar, Students | Own students only; mark attendance; book sessions; request grade changes |
-| `admin` | All except User Mgmt | Full access to all data |
-| `sysadmin` | Everything | Same as admin + create/edit/revoke user accounts |
-| `denied` | Access Denied screen | No Firestore `users` doc exists for this Google account |
+| `teacher` | Calendar, Students, Archive (notification archive only) | Own classes only; mark attendance; book one-off sessions; request grade changes. **No payroll/fee/commission screens.** |
+| `admin` | All except User Mgmt | Full data access; collect fees; finalize months; deposits; discounts |
+| `sysadmin` | Everything | Admin + user accounts + **revising finalized months** |
+| `denied` | Access Denied | No `users` doc for this Google account |
 
-Auth gate order in App.jsx: **loading spinner → Login → AccessDenied → main app**
+Auth gate order in App.jsx: **spinner → Login → AccessDenied → (spinner until fees + studio data load) → main app**.
+Teachers don't subscribe to admin-only collections (`deposits`, `discounts`, `month_snapshots`, `month_revisions`, `activity_log`).
 
 ---
 
-## Firestore Collections
+## Firestore collections
 
-### `users/{uid}`
-| Field | Type | Notes |
-|---|---|---|
-| `uid` | string | Same as document ID |
-| `email` | string | Lowercase |
-| `displayName` | string | |
-| `photoURL` | string \| null | |
-| `role` | string | `teacher`, `admin`, or `sysadmin` |
-| `teacherId` | string \| null | Links to in-memory teacher ID — required for teacher role |
-| `createdAt` | timestamp | |
-| `createdBy` | string | UID of the sysadmin who created this account |
+| Collection | Notes |
+|---|---|
+| `users/{uid}`, `invites/{id}` | Accounts. Invite-based: sysadmin creates an invite for a Gmail; first Google sign-in claims it (see Runbook). `teacherId` links a user to a `teachers` doc. |
+| `notifications/{id}` | `clash_request` (to a teacher) and `grade_request` (to admin; carries `enrolmentId`). `status` pending → approved/rejected. Resolved ones are listed in **Archive → Notification Archive**. |
+| `fees/classical`, `fees/contemporary` | `{ Instrument: { Level: { "30": RM, "45": RM, "60": RM } } }`. **The keys of these two docs ARE the studio's instruments.** Edited on Grades & Fees. Read publicly via `getPublicFees`. |
+| `students`, `enrolments`, `teachers`, `rooms` | See schema below. Read: signed in. Write: admin/sysadmin. |
+| `attendance/{enrolmentId_YYYY-MM-DD}` | `{ enrolmentId, date, status, notes }`. Signed-in read/write (teachers mark attendance). Absence of a doc = not marked. |
+| `one_off_sessions/{id}` | Extra bookings from the calendar. |
+| `class_deferrals/{id}` | Make-up classes `{ enrolmentId, studentId, teacherId, originalDate, makeupDate, … }`. |
+| `deposits/{enrolmentId}` | Deposit lifecycle (below). Admin only. Rules block edits once applied/forfeited. |
+| `payroll_months/{YYYY-MM}` | The monthly **ledger** (below). Admin write, **frozen once the month is finalized**. |
+| `month_snapshots/{YYYY-MM}` | Immutable finalized month. Create once; no update/delete. |
+| `month_revisions/{id}` | Corrections to a finalized month. Sysadmin create; append-only. |
+| `discounts/{id}` | Promotions. Admin only. |
+| `settings/studio` | `{ adminFlatFee }` |
+| `activity_log/{id}` | Append-only audit trail; admin read. |
 
-### `invites/{id}`
-| Field | Type | Notes |
-|---|---|---|
-| `email` | string | Lowercase Gmail — matched against `user.email` on first Google sign-in |
-| `displayName` | string | Pre-filled name shown before the user claims the invite |
-| `role` | string | `teacher`, `admin`, or `sysadmin` |
-| `teacherId` | string \| null | Links to in-memory teacher profile — required for teacher role |
-| `createdAt` | timestamp | |
-| `createdBy` | string | UID of the sysadmin who created the invite |
+### `rooms`
+`{ name, types: string[], color }` — **multiple types** (must be instruments from Grades & Fees; ≥1 required). A class may only use a room whose `types` include the enrolment's instrument.
 
-When the invited person signs in with Google for the first time, `useAuth.js` queries this collection by email, creates `users/{uid}` from the invite data, and deletes the invite doc. Pending invites appear in the User Management table with a "Pending Sign-in" badge.
+### `teachers`
+`{ name, instruments: string[], commissionPct }` — `commissionPct` is the **default** rate; commission 0–100 validated. Instruments must exist on Grades & Fees.
 
-### `notifications/{id}`
-| Field | Type | Notes |
-|---|---|---|
-| `type` | string | `clash_request` or `grade_request` |
-| `fromTeacherId` | string | In-memory teacher ID of requester |
-| `toTeacherId` | string | For clash: teacher whose slot is affected |
-| `toRole` | string | For grade: `"admin"` |
-| `studentId` | string | Relevant student |
-| `requestedDate` | string | `YYYY-MM-DD` |
-| `requestedStartTime` | string | `HH:MM` |
-| `requestedEndTime` | string | `HH:MM` |
-| `requestedRoomId` | string | For clash requests |
-| `requestedGrade` | string | For grade requests |
-| `sessionId` | string | ID of the oneOffSession in App state (clash only) |
-| `reason` | string | |
-| `status` | string | `pending`, `approved`, or `rejected` |
-| `createdAt` | timestamp | |
-| `resolvedAt` | timestamp \| null | |
-| `resolvedBy` | string \| null | UID of resolver |
-
-### `fees/classical` and `fees/contemporary`
-
-Fee schedule documents — one per syllabus type. Each document has the same shape:
-
+### `enrolments`
 ```
-{
-  "<Instrument>": {
-    "<Level>": { "30": <RM>, "45": <RM>, "60": <RM> },
-    ...
-  },
-  ...
-}
+studentId, instrument (null if no longer offered), syllabus "classical"|"contemporary", grade, teacherId,
+attendanceBased, status "active"|"stopped",
+schedule { dayOfWeek, startTime, endTime, duration "30"|"45"|"60", roomId },
+startDate "YYYY-MM-DD", endDate (last day of the final lesson month) | null,
+feeOverride { amount, effectiveFrom "YYYY-MM" } | null      // null → standard fee from the Grades & Fees table
+billingTerm (display copy), termChanges [{ from "YYYY-MM", term }]   // term history; only "monthly" | "quarterly"
+commissionPct | null                                         // null → teacher's default
 ```
 
-- **Instruments:** Piano, Drum, Guitar, Violin, Vocals, Flute
-- **Classical levels:** Beginner, Grade 1 – Grade 8 (9 levels)
-- **Contemporary levels:** Beginner, Intermediate, Advanced (3 levels)
-- **Prices:** RM per month for weekly lessons at the given session length (30/45/60 min)
+---
 
-Edited via **Grades & Fees** view → Save Changes button. Firestore rules: authenticated read, admin/sysadmin write.
+## Schedule & conflict logic (`domain/enrolments.js`)
+- One session per enrolment per matching weekday between `startDate`/`endDate` — `getSessionsForDate`. Calendar, Rooms, Dashboard and Students all render from this, so a two-instrument student appears once per instrument, at each class's own time.
+- `findScheduleConflicts(candidate, existing, {ignoreId, asOf})`: same weekday + overlapping times (`09:00–10:00` and `10:00–11:00` don't overlap) → **student** (can't be in two classes), **room** (double-booked), **teacher** (double-booked). Stopped enrolments past their last day are ignored.
+- Enforced in `useStudio.checkEnrolment` (every enrolment create/edit, in app code — at this studio's scale no rules-level check is needed) and shown live in `EnrolmentForm`. `validateEnrolment` also requires: instrument on Grades & Fees, grade valid for the syllabus, teacher teaches it, room type includes it.
+- Calendar one-off bookings: student/teacher overlap and wrong room type are **hard blocks**; a room already taken by another teacher still goes through the existing **clash-request** approval flow.
 
-**To add a new instrument:** Add it to `INSTRUMENTS` in `src/data/seed.js`, add default fee rows to `SEED_FEES` and `SEED_CONTEMPORARY_FEES`, then open Grades & Fees and save. The website fees page reads instruments dynamically from the Cloud Function response — no website changes needed.
+## Grade changes (no grade lock)
+v7 originally planned a "grade lock"; it was **replaced by Finalize Month**. Grade/duration edits are always allowed. `needsCollectedFeeWarning` makes `EnrolmentForm` require an "I understand" tick when the current period's fee is already collected; the grade-request drawer shows an equivalent note. A collected fee keeps its amount (snapshot, below), so a grade change only affects future fees. If an admin override/lock is ever wanted, it belongs in `EnrolmentForm.submit` and `useStudio.updateEnrolment`.
+
+## Fee model & billing terms (`domain/billing.js`)
+- Standard monthly fee = `fees[syllabus][instrument][grade][duration]`; an enrolment can override it with `feeOverride` **from an effective month onward** (earlier months keep the standard fee).
+- **Billing term: only `monthly` or `quarterly`** (`BILLING_TERMS`; `assertBillingTerm` throws on anything else; the UI offers only those two). Quarterly = one fee covering 3 months, counted from the enrolment's start month (or the month a term change takes effect). `getBillingPeriod(enrolment, ym)` returns `{isFeeMonth, months, startYM, coveredBy}`: the fee lives in the period's first month; months 2–3 show "Covered by <month> fee". A period is cut short if the enrolment stops inside it.
+- Term / fee / commission changes go through `buildBillingPatch` (validates, builds `termChanges` / `feeOverride`) and only affect fees not yet collected.
+- Admin flat fee is per month of the period (`adminFlatFee × months`, capped at gross).
+
+## Commission snapshot rule
+Rate = `enrolment.commissionPct ?? teacher.commissionPct ?? 60` (`resolveCommissionPct`). **When a fee is marked collected, `snap` is written to the ledger entry** (`periodFee, discountAmount, commissionPct, adminFlatFee, term, periodMonths, periodStart` via `buildCollectionSnapshot`). `buildEnrolmentRow` reads `snap` for collected fees, so later fee/grade/discount/commission/teacher-default edits never change a collected fee or past commission. Un-collecting clears `snap`.
+
+## Ledger entry (`payroll_months/{ym}.feeStatus[enrolmentId]`)
+`collected, collectedAt, collectedBy, snap, discount {id,name,type,value,note}, depositApplied {depositId, amount}, deferredToMonth, deferredFromMonths[], deferredFromAmounts{}`. Payroll rules: nothing counts until collected; attendance-based with 0 attended → 0; gross = fee after discount (prorated by attended/scheduled if attendance-based); flat fee first, then commission split; deferred payouts move teacher/admin amounts to the target month.
+
+## Discounts
+`discounts/{id}`: name, `percent|amount`, value, `startMonth`, `durationMonths`, note. Selectable only for fee months inside its window; applied per student per fee month from **Payroll → Discount** (below FEE). Capped at the fee (`calcDiscountAmount`). Frozen into `snap` on collection. Payroll shows the original fee struck through and the discounted fee larger.
+
+## Deposit model & lifecycle (`domain/deposits.js`)
+- One per enrolment (`deposits/{enrolmentId}`): `amount` (snapshot), `status`, `payment`, applied/forfeited details.
+- Created at registration (`registerStudent` / `addEnrolment`). **Default amount = the first month's fee for the starting grade/duration** (even for quarterly billing), editable; a higher amount shows a warning, not a block.
+- `pending` (registration incomplete — flagged on Students & Dashboard) → `held` (collected) → `applied` | `forfeited`. **Not refundable** (no refund state).
+- **Stopping an enrolment** (`Students → Stop`, choose last lesson month) runs one Firestore transaction (`applyDepositTx`): sets `endDate`, applies the held deposit to the **final billing period's** net fee (`planDepositApplication`: equal → pays nothing; smaller → student pays the difference; larger → fee covered, excess `forfeitedAmount`), writes `depositApplied` into that month's ledger entry, and auto-marks the fee collected (with a snapshot) if nothing is left to pay. If the final fee is already collected, nothing is applied and the UI says to un-collect first, then use **Apply deposit**.
+- **Single use** is enforced at the data layer: every domain transition throws unless the state is right, transactions re-read the doc, and `firestore.rules` rejects updates/deletes of `applied`/`forfeited` records and changes to `amount` at that moment.
+- Existing enrolments have no deposit; admins backfill from **Students → Deposit** ("Record as pending/collected").
+
+## Reporting treatment of deposits
+Held deposits = **liability** (`summariseDeposits().liability`, shown on Dashboard and Payroll as "Deposits Held"). Never added to revenue while held. An applied deposit becomes revenue **once**, as part of the final fee's gross (commission uses that fee's snapshot rate); it is never counted again. Forfeited remainder is recorded on the deposit record.
+
+## Finalize Month & Archive
+- **Payroll → Finalize Month** (admin): confirmation modal (counts, totals, uncollected list — a warning, not a block) + acknowledgement tick → writes `month_snapshots/{ym}` (all rows, totals, payout status). From then `payroll_months/{ym}` is rule-locked and Payroll renders the month from the snapshot (latest revision if any; toggle to original).
+- **Archive → Finalized Months**: originals and revisions. **Sysadmin** can *Revise*: edit collected / fee / discount / commission % / deferral per row, totals recompute (`months.reviseRow`), a reason is required, saved as `month_revisions` (original untouched). Months referenced by a changed deferral are listed in `affectedMonths` and highlighted. Revisions do not rewrite other months' ledgers — the highlight tells admins to check them.
+- **Archive → Notification Archive**: all approved/rejected notifications. **Archive → Download full backup**.
+
+## Activity log
+`useStudio` writes `activity_log` entries for: student register/edit/delete, enrolment create/edit/stop, **fee override, billing term and commission changes (with from/to)**, fee schedule saves, payroll collect/un-collect, discounts, deferrals, deposit create/collect/edit/apply/forfeit/backfill, month finalize/revise, teacher/room/instrument/settings changes, notification resolutions. View: **Activity Log** (admin). Append-only in rules.
+
+## Instruments (single source of truth)
+`getInstruments(fees, contemporaryFees)` — every instrument picker (teachers, enrolments, rooms) uses it. Deleting an instrument on Grades & Fees is **blocked for everyone, sysadmin included**, while a teacher or live enrolment uses it (message: "Un-attach all students and teachers that are linked to this instrument before deleting it."). References to instruments that no longer exist are replaced with `null` / dropped once on admin login (`cleanupInstruments`): null instrument ⇒ fee 0.
 
 ---
 
 ## Cloud Function — `getPublicFees`
-
-- **Source:** `functions/index.js`
-- **Region:** `asia-southeast1` (same as Firestore database)
-- **Runtime:** Node 20, firebase-functions v6 (v2 HTTPS)
-- **Purpose:** Serves the full fee schedule as JSON to the public lead-gen website. Uses Firebase Admin SDK server-side — Firestore client security rules are bypassed.
-- **Response shape:** `{ classical: { Piano: { Beginner: { "30": N, "45": N, "60": N }, ... }, ... }, contemporary: { ... } }`
-- **Caching:** `Cache-Control: public, max-age=600` (10 minutes) — reduces Firestore reads on page load
-- **Auth:** None required (public endpoint). CORS `*` allowed.
-- **Deploy:** `cd studio-os && firebase deploy --only functions`
-- **URL:** Shown in terminal after first deploy. Copy it into the website's `VITE_FEES_API_URL` env var.
-  Find it later with: `firebase functions:list`
+- **Source:** `functions/index.js` · region `asia-southeast1` · Node 20, firebase-functions v6 (HTTPS v2)
+- Serves the fee schedule as JSON to the public lead-gen website (Admin SDK, bypasses rules): `{ classical: { Piano: { Beginner: { "30": N, "45": N, "60": N } } }, contemporary: {…} }`. `Cache-Control: public, max-age=600`, CORS `*`, no auth.
+- Deploy: `firebase deploy --only functions`; URL via `firebase functions:list` → website `VITE_FEES_API_URL`. New instruments appear automatically.
 
 ---
 
 ## Theme System
-- All views receive `T` (token object) as a prop from App.jsx
-- Tokens: `T.bg`, `T.panel`, `T.panel2`, `T.text`, `T.textSub`, `T.muted`, `T.accent`, `T.border`, `T.border2`, `T.dim`, `T.input`, `T.rowAlt`, `T.hover`, `T.sidebar`
-- Never hardcode colors — always use T tokens
-- Active state: `color: T.accent`, `background: T.accent + "22"`
-- Inactive state: MUST explicitly set `color: T.muted`, `background: "transparent"`
+- All views receive `T` (token object) as a prop. Tokens: `T.bg`, `T.panel`, `T.panel2`, `T.text`, `T.textSub`, `T.muted`, `T.accent`, `T.border`, `T.border2`, `T.dim`, `T.input`, `T.rowAlt`, `T.hover`, `T.sidebar`
+- Never hardcode colours — use `T` tokens (semantic status colours already used in views are the exception). Active: `color: T.accent`, `background: T.accent + "22"`. Inactive: explicitly `color: T.muted`, `background: "transparent"`.
 
 ---
 
-## Key Business Logic
-- Sessions generated automatically from student recurring schedules — no manual calendar entries needed
-- Attendance stored as overrides (`studentId + date + status`) in `attendanceOverrides` state
-- Payroll: `attendanceBased` → gross = (attended/scheduled) × fee; else → gross = full fee
-- Admin flat fee deducted from gross first, then split by `commissionPct`
-- One-off sessions (CalendarView bookings) stored in `oneOffSessions` App state — not yet in Firestore
-- Clash detection uses `timesOverlap(startA, endA, startB, endB)` from helpers.js
+## Testing
+`npm test` (Vitest, node env, no network). Covers: multi-instrument schedule rendering, conflict detection, billing terms & term-based fee generation, historical amount immutability, commission at different rates, discounts, deposit creation/snapshot immutability, deposit applied to the final month (equal / greater / smaller / quarterly), single-use enforcement, separate deposits per instrument, month finalize/revisions, instrument rules, activity-log entries, and `views.test.jsx` server-renders every view (admin, teacher, mobile, empty studio, finalized month). **Not covered:** Firestore rules and live Firestore transactions (no emulator in the repo) — verify those manually after `firebase deploy --only firestore:rules`.
+
+## Docs
+- `docs/design-decisions.md` — why v7 works the way it does: owner decisions, assumptions, open questions, deploy checklist. Read it before changing deposits, grade rules, discounts or Finalize Month.
+- `docs/README.md` — index. `docs/user-guide-teacher.md` — non-technical teacher guide. Admin guide: not written yet (add `docs/user-guide-admin.md` and list it in the index).
+- **Project convention: whenever a teacher-facing feature changes (Calendar, Students as seen by a teacher, attendance, grade requests, notifications, login), update `docs/user-guide-teacher.md` in the same change.** Only document features that exist. Screenshots are `![description](TODO)` placeholders.
 
 ---
 
 ## Operational Runbook
 
-### Add a new user account (teacher or admin)
-1. Sign in as **sysadmin** → go to **User Mgmt** in the sidebar
-2. Select the Role — the form changes accordingly:
-   - **Teacher**: fill in Full Name, Gmail, instruments, commission % — teacher profile is created automatically
-   - **Admin / Sysadmin**: fill in Full Name, Gmail, and optionally link an existing teacher profile
-   - **Student**: fill in student profile fields — no Gmail needed (students don't sign in)
-3. Click **Create Invite**
-4. Tell the person to open the app and click **Sign in with Google** using that Gmail — their account activates automatically on first sign-in
+### First-time setup of a new studio (empty database)
+1. Bootstrap the first sysadmin (below).
+2. **Grades & Fees** → `+ Add` each instrument, fill fees (or import the Excel template), **Save Changes**.
+3. **Rooms** → add rooms and tick every instrument each room can host.
+4. **Payroll → + Add Teacher** (name, instruments, default commission %), then **User Mgmt → Teacher** to invite their Gmail linked to that profile (creating a teacher in User Mgmt makes both).
+5. **Students → + Register Student**: name, instrument, grade, teacher, weekly slot, term, optional fee/commission override, and the **deposit** (default = first month's fee; tick "received now" once paid). Add a second instrument with **+ Instrument** on the student's row.
 
-> No Firebase Auth account is pre-created. The invite is just a Firestore doc. The user's Google Sign-In creates the actual Auth record when they first sign in.
+### Add a user account (teacher / admin / sysadmin)
+1. Sysadmin → **User Mgmt** → pick Role; fill name + Gmail (teachers: instruments + default commission).
+2. **Create Invite**. They sign in with Google using that Gmail; `useAuth.js` claims the invite, creates `users/{uid}`, deletes the invite. No Firebase Auth account is pre-created. Students are **not** accounts — they're registered on the Students page (User Mgmt lists them read-only with a link).
 
-### Add a teacher profile (separate from their user account)
-1. Sign in as **admin** or **sysadmin** → go to **Payroll**
-2. Click **+ Add Teacher** → fill in name, instruments, commission %
-3. Save — the teacher now appears in the payroll breakdown and can be linked to a user account in User Mgmt
+### Bootstrap the very first sysadmin (one-time)
+1. Open the app → Sign in with Google → Access Denied (expected). 2. Firebase console → Authentication → copy your **UID**. 3. Firestore → `users` → add document with ID = UID and fields: `uid`, `email` (lowercase), `displayName`, `role: "sysadmin"`, `teacherId: null`, `createdAt` (timestamp). 4. Refresh.
 
-### Bootstrap the very first sysadmin (one-time setup)
-No sysadmin exists yet, so you must create the first one manually in Firestore:
-1. Open the app → click **Sign in with Google** → you will see Access Denied (expected)
-2. Firebase Console → **Authentication** → **Users** tab → copy your **UID**
-3. Firebase Console → **Firestore** → `users` collection → **Add document**
-4. Set Document ID = your UID, then add these fields:
+### Edit / delete / transfer a user
+- **Edit**: User Mgmt → Edit (invites: email editable too). **Delete / Cancel Invite**: removes the `users`/`invites` doc; next sign-in is Access Denied. **Transfer** (user changed Gmail): Transfer → enter new Gmail → Create & Transfer; role and teacher profile carry over.
+- "Access Denied unexpectedly" ⇒ their `users` doc is missing; recreate via invite or add it in the console. Role changes apply on next page load.
 
-| Field | Type | Value |
-|---|---|---|
-| `uid` | string | your UID |
-| `email` | string | your gmail (lowercase) |
-| `displayName` | string | your name |
-| `role` | string | `sysadmin` |
-| `teacherId` | null | — |
-| `createdAt` | timestamp | now |
+### Month-end
+Collect fees on **Payroll** (apply discounts, defer payouts as needed) → check every row → **Finalize Month**. Mistakes later: sysadmin → **Archive → Revise**. Pay teachers via **Payroll → Pay Out** (CSV + per-student invoice PDF).
 
-5. Refresh the app — full sysadmin access granted
-
-### Edit or delete a user
-- **Edit** (change name, role, linked teacher): User Mgmt → Edit button on their row. For pending invites, email can also be edited.
-- **Delete Account** (immediate lockout): User Mgmt → Delete button → confirm. Their Firestore `users` doc is deleted; next sign-in attempt shows Access Denied. Their Google account is unaffected.
-- **Cancel Invite** (pending invite): User Mgmt → Delete button on a Pending row → confirm. The invite doc is deleted; they can no longer activate an account with that Gmail.
-
-### Transfer an account (user switching Gmail)
-1. User Mgmt → Transfer button on the user's row
-2. Confirm the transfer modal
-3. The form pre-fills with the old account's info — enter the new Gmail address
-4. Click **Create & Transfer** — a new invite is created for the new Gmail, old account is removed
-5. Tell the user to sign in with their new Gmail — their role and teacher profile carry over automatically
-
-### User sees "Access Denied" unexpectedly
-Their Firestore `users` doc is missing or was deleted. Options:
-- If legitimate user: go to User Mgmt → Create Account again (they get a new UID → new doc)
-- Or: Firebase Console → Firestore → `users` collection → find/add their doc manually
-
-### Change a user's role
-User Mgmt → Edit → change Role dropdown → Save. Takes effect on their next page load (or immediate if they reload).
+### Stop a student / use their deposit
+**Students → Stop** on that instrument → choose the last lesson month → confirm. The deposit is deducted from the final fee automatically; check **Payroll** for that month (shows "Deposit −RM x · pays RM y"). Use **Deposit → Apply deposit** if it couldn't apply automatically.
 
 ### Update Firestore security rules
-1. Edit `firestore.rules` in the project root
-2. Run: `firebase deploy --only firestore:rules`
-3. Rules are live instantly — no app restart needed
+Edit `firestore.rules` → `firebase deploy --only firestore:rules` (live immediately).
 
-### Deploy the app to Firebase Hosting
-```bash
-npm run build
-firebase deploy --only hosting
-```
-The live URL will be shown in the terminal after deploy (e.g. `https://ark-music-portal.web.app`).
+### Deploy the app
+`npm run build && firebase deploy --only hosting` (e.g. https://ark-music-portal.web.app).
 
-### Add a new view/page to the app
-1. Create `src/views/MyView.jsx`
-2. In `App.jsx`: import it, add to `ALL_NAV` array with `{ id, label, icon, roles }`, add to `views` object
-3. Pass `shared` props (includes `T`, `currentUser`, all state)
+### Add a new view
+Create `src/views/MyView.jsx`; in `App.jsx` import it, add to `ALL_NAV` (`{ id, label, icon, roles }`) and to `views`. It receives the `shared` props (`T`, `currentUser`, store data, `actions`, `log`, `goTo`, `setDirty`…).
 
-### Add a new theme color token
-1. Add to both `dark` and `light` objects in `src/utils/tokens.js`
-2. Use as `T.myNewToken` in any component
+### Add a new theme token
+Add to both `dark` and `light` in `src/utils/tokens.js`; use as `T.myToken`.
+
+### Add a new business rule
+Put it in `src/domain/` with a test next to it; call it from `useStudio` (writes) and the view (display). Don't re-implement rules in views.
 
 ---
 
@@ -305,3 +301,14 @@ The live URL will be shown in the terminal after deploy (e.g. `https://ark-music
   - **"No Grade" removed, "Debut" renamed "Beginner"** — `GRADE_LABELS` in `seed.js` updated: "No Grade" dropped, "Debut" → "Beginner". `SEED_FEES` keys updated accordingly. Seed student Diana Foo's grade updated from "Debut" → "Beginner".
   - **Syllabus types: Classical and Contemporary** — `CONTEMPORARY_GRADE_LABELS = ["Beginner","Intermediate","Advanced"]` added to `seed.js`. `SEED_CONTEMPORARY_FEES` added with default fees RM 160 / 200 / 250 per instrument (same defaults across all instruments). `contemporaryFees` / `setContemporaryFees` state added to `App.jsx` and spread into `shared` props.
   - **GradesAndFees view** — Top buttons replaced: **Classical** | **Contemporary** | **Both** (replacing the old Grades/Fees tabs). Instrument picker row remains. A single Card renders: classical fee grid (all `GRADE_LABELS`), contemporary fee grid (3 levels), or both sections stacked with their own `SectionTitle` labels — depending on the selected syllabus button. All fees remain editable inline.
+- **v7 — Enrolment-centred rebuild (persistence, fees, deposits, month close)**
+  - **Everything persisted in Firestore**; all demo/seed data removed. New collections: `students`, `enrolments`, `deposits`, `teachers`, `rooms`, `attendance`, `one_off_sessions`, `discounts`, `settings`, `month_snapshots`, `month_revisions`, `activity_log`. Rules rewritten (finalized-month freeze, deposit immutability, append-only logs).
+  - **Enrolment model**: a student can learn several instruments; each enrolment has its own teacher, room, slot, grade/syllabus, fee, term, commission. Calendar/Rooms/Payroll/Dashboard render per enrolment.
+  - **Rooms** have multiple types; classes can only use rooms whose types include the instrument. **Conflict checks** for student/room/teacher overlaps.
+  - **Instruments** come only from Grades & Fees; deletion blocked while linked; dangling references nulled.
+  - **Fees**: per-enrolment fee override (effective-from month), **billing term monthly | quarterly**, per-enrolment commission override, all snapshotted on collection and recorded in the activity log.
+  - **Deposit**: per enrolment, default = first month's fee at the starting grade, non-refundable, auto-applied to the final fee when an enrolment is stopped, single-use, shown as a liability.
+  - **Discounts page** + per-student discount on Payroll; Payroll table redesigned to two rows per student with a **Collection** column (collected + defer payout).
+  - **Finalize Month** (immutable snapshot) and **Archive** (finalized months, sysadmin revisions with affected-month highlighting, notification archive, full backup). **Activity Log** page.
+  - Grade lock was dropped in favour of Finalize Month + a collected-fee warning.
+  - Vitest added (domain tests + view smoke tests); `docs/user-guide-teacher.md` added.

@@ -2,6 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isSignedIn() { return request.auth != null; }
+
     function isSysadmin() {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -12,6 +14,10 @@ service cloud.firestore {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ["admin", "sysadmin"];
+    }
+
+    function isFinalized(yearMonth) {
+      return exists(/databases/$(database)/documents/month_snapshots/$(yearMonth));
     }
 
     // Active user accounts — doc ID is their Firebase Auth UID
@@ -38,16 +44,32 @@ service cloud.firestore {
       allow delete: if isSysadmin();
     }
 
-    // Payroll month snapshots — fee collection + payout status per month
+    // Payroll ledger (fee collected / discount / deferral / payout paid).
+    // Frozen for good once the month has been finalized — corrections go through month_revisions.
     match /payroll_months/{yearMonth} {
       allow read:   if request.auth != null;
-      allow write:  if isAdminOrAbove();
+      allow write:  if isAdminOrAbove() && !isFinalized(yearMonth);
+    }
+
+    // Finalized month snapshot — create once by admin/sysadmin, never edited or deleted.
+    match /month_snapshots/{yearMonth} {
+      allow read:   if isAdminOrAbove();
+      allow create: if isAdminOrAbove();
+      allow update, delete: if false;
+    }
+
+    // Corrections to a finalized month — append-only, sysadmin only. The snapshot is never touched.
+    match /month_revisions/{revisionId} {
+      allow read:   if isAdminOrAbove();
+      allow create: if isSysadmin();
+      allow update, delete: if false;
     }
 
     // Makeup class scheduling — teachers and admins can create/delete
     match /class_deferrals/{deferralId} {
       allow read:   if request.auth != null;
       allow create: if request.auth != null;
+      allow update: if request.auth != null;
       allow delete: if request.auth != null;
     }
 
@@ -57,6 +79,43 @@ service cloud.firestore {
     match /fees/{docId} {
       allow read:  if request.auth != null;
       allow write: if isAdminOrAbove();
+    }
+
+    // ── Studio data (was in-memory; now persisted) ──────────────────────────────
+    // Teachers need to read everything to render the calendar (clash detection, "Occupied" slots);
+    // the app filters what a teacher sees. Only admin/sysadmin can change people, rooms and enrolments.
+    match /students/{id}   { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
+    match /enrolments/{id} { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
+    match /teachers/{id}   { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
+    match /rooms/{id}      { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
+    match /discounts/{id}  { allow read: if isAdminOrAbove(); allow write: if isAdminOrAbove(); }
+    match /settings/{id}   { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
+
+    // Teachers mark attendance and book one-off sessions from the calendar.
+    match /attendance/{id}        { allow read, write: if isSignedIn(); }
+    match /one_off_sessions/{id}  { allow read, write: if isSignedIn(); }
+
+    // Deposits: one per enrolment (doc id = enrolmentId). A deposit can only move
+    // pending → held → applied/forfeited. Once applied or forfeited the record is immutable
+    // and can never be deleted, which is what makes "applied only once" a data-layer guarantee.
+    match /deposits/{enrolmentId} {
+      allow read:   if isAdminOrAbove();
+      allow create: if isAdminOrAbove() && request.resource.data.status in ["pending", "held"];
+      allow update: if isAdminOrAbove()
+                    && resource.data.status in ["pending", "held"]
+                    && request.resource.data.status in ["pending", "held", "applied", "forfeited"]
+                    && request.resource.data.enrolmentId == resource.data.enrolmentId
+                    // the snapshot amount cannot be rewritten at the moment it is applied / forfeited
+                    && (request.resource.data.status in ["pending", "held"]
+                        || request.resource.data.amount == resource.data.amount);
+      allow delete: if isAdminOrAbove() && resource.data.status == "pending";
+    }
+
+    // Activity log — anyone signed in may append, only admins read, nobody edits or deletes.
+    match /activity_log/{id} {
+      allow create: if isSignedIn() && request.resource.data.actorUid == request.auth.uid;
+      allow read:   if isAdminOrAbove();
+      allow update, delete: if false;
     }
   }
 }

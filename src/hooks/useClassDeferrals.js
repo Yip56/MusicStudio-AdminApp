@@ -10,6 +10,7 @@ import { db } from "../firebase.js";
  *
  * Collection: class_deferrals/{id}
  * Shape:
+ *   enrolmentId:  string                  — the class (student + instrument) being made up
  *   studentId:    string
  *   teacherId:    string
  *   originalDate: "YYYY-MM-DD"   — the missed class date
@@ -29,9 +30,10 @@ export function useClassDeferrals() {
     });
   }, []);
 
-  async function addDeferral({ studentId, teacherId, originalDate, makeupDate, makeupStartTime, makeupEndTime, createdBy }) {
+  async function addDeferral({ enrolmentId, studentId, teacherId, originalDate, makeupDate, makeupStartTime, makeupEndTime, createdBy }) {
     await addDoc(collection(db, "class_deferrals"), {
-      studentId,
+      enrolmentId,
+      studentId: studentId ?? null,
       teacherId,
       originalDate,
       makeupDate,

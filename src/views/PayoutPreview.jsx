@@ -1,44 +1,36 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import { usePayrollMonth } from "../hooks/usePayrollMonth.js";
-import { calcStudentPayroll } from "../utils/helpers.js";
+import { buildMonthRows } from "../domain/payroll.js";
+import { snapshotRowToDisplay } from "../domain/months.js";
+import { TERM_LABEL } from "../domain/billing.js";
 
 export default function PayoutPreview({
   teacher, year, month,
-  students, fees, attendanceOverrides, adminFlatFee,
+  students, teachers, enrolments, tables, attendance, adminFlatFee, monthSnapshots, monthRevisions,
   T, isMobile, onBack, currentUser
 }) {
   const yearMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
   const { feeStatus, payoutStatus, markPayoutPaid } = usePayrollMonth(yearMonth);
+  const finalized = monthSnapshots.find(m => m.yearMonth === yearMonth) ?? null;
+  const latestRev = monthRevisions.filter(r => r.yearMonth === yearMonth).sort((a, b) => b.revisionNo - a.revisionNo)[0] ?? null;
   const isPaid = payoutStatus[teacher.id]?.paid   ?? false;
   const paidAt = payoutStatus[teacher.id]?.paidAt;
 
   const [hoveredRow, setHoveredRow] = useState(null);
 
-  const myStudents = students.filter(s => s.teacherId === teacher.id);
-  const details = myStudents.map(s => {
-    const collected          = feeStatus[s.id]?.collected          ?? false;
-    const collectedAt        = feeStatus[s.id]?.collectedAt;
-    const deferredToMonth    = feeStatus[s.id]?.deferredToMonth    ?? null;
-    const deferredFromMonths  = feeStatus[s.id]?.deferredFromMonths  ?? [];
-    const deferredFromAmounts = feeStatus[s.id]?.deferredFromAmounts ?? {};
+  const studentName = id => students.find(s => s.id === id)?.name ?? "Unknown student";
+  // Finalized months are read from the frozen snapshot (latest revision if one exists)
+  const allRows = useMemo(() => {
+    if (finalized) return (latestRev ?? finalized).rows.map(snapshotRowToDisplay);
+    return buildMonthRows({ ym: yearMonth, ledger: feeStatus, teachers, tables, adminFlatFee, attendance }, enrolments);
+  }, [finalized, latestRev, yearMonth, feeStatus, teachers, tables, adminFlatFee, attendance, enrolments]);
 
-    const deferredGrossExtra = deferredFromMonths.reduce((sum, ym) => {
-      if (ym in deferredFromAmounts) return sum + deferredFromAmounts[ym];
-      const [y, m] = ym.split("-").map(Number);
-      return sum + calcStudentPayroll(s, y, m - 1, fees, teacher.commissionPct, adminFlatFee, attendanceOverrides, true).gross;
-    }, 0);
-
-    return {
-      student: s,
-      collected,
-      collectedAt,
-      deferredToMonth,
-      deferredFromMonths,
-      deferredGrossExtra,
-      ...calcStudentPayroll(s, year, month, fees, teacher.commissionPct, adminFlatFee, attendanceOverrides, collected, deferredGrossExtra)
-    };
-  });
+  // covered months (2nd/3rd month of a quarterly fee) have nothing to pay out
+  const details = allRows
+    .filter(r => r.teacherId === teacher.id && !r.covered)
+    .map(r => ({ ...r, name: r.studentName ?? studentName(r.enrolment.studentId), collectedAt: r.collectedAt ?? feeStatus[r.eid]?.collectedAt }));
+  const myStudents = details;
 
   const totalPayout = details.reduce((a, d) => a + (d.deferredToMonth ? 0 : d.teacherCut), 0);
   const monthName   = new Date(year, month, 1).toLocaleDateString("en-MY", { month: "long", year: "numeric" });
@@ -46,7 +38,8 @@ export default function PayoutPreview({
   function downloadCSV() {
     const monthLabel = new Date(year, month, 1).toLocaleDateString("en-MY", { month: "long" }).toUpperCase();
     const esc = v => `"${String(v).replace(/"/g, '""')}"`;
-    const comHeader = `COM (TOTAL x ${teacher.commissionPct}%)`;
+    const rates = [...new Set(details.map(d => d.commissionPct))];
+    const comHeader = `COM (TOTAL x ${rates.length === 1 ? rates[0] + "%" : "RATE%"})`;
 
     const fmtYM = ym => {
       const [y, m] = ym.split("-");
@@ -55,18 +48,20 @@ export default function PayoutPreview({
 
     const dataRows = details.map((d, i) => {
       const deferredAmt = d.deferredGrossExtra > 0 ? d.deferredGrossExtra.toFixed(2) : "-";
+      const extra = [d.enrolment.instrument ?? "-", TERM_LABEL[d.period.term] ?? "-", d.discountAmount > 0 ? d.discountAmount.toFixed(2) : "-", d.commissionPct];
       if (!d.collected) {
-        return [i + 1, d.student.name, d.student.grade, "-", "-", "-", d.deferredToMonth ? fmtYM(d.deferredToMonth) : "-", deferredAmt];
+        return [i + 1, d.name, d.enrolment.grade, "-", "-", "-", d.deferredToMonth ? fmtYM(d.deferredToMonth) : "-", deferredAmt, ...extra];
       }
       return [
         i + 1,
-        d.student.name,
-        d.student.grade,
+        d.name,
+        d.enrolment.grade,
         d.gross.toFixed(2),
         d.deferredToMonth ? "-" : d.flatDeducted.toFixed(2),
         d.deferredToMonth ? "Deferred" : d.teacherCut.toFixed(2),
         d.deferredToMonth ? fmtYM(d.deferredToMonth) : "-",
         deferredAmt,
+        ...extra,
       ];
     });
 
@@ -74,10 +69,10 @@ export default function PayoutPreview({
       ["Teacher's Name", teacher.name],
       ["Month", monthLabel],
       [],
-      ["NO", "STUDENT'S NAME", "GRADE", "FEES", "ADMIN FEES", comHeader, "DEFERRED TO", "DEFERRED AMOUNT"],
+      ["NO", "STUDENT'S NAME", "GRADE", "FEES", "ADMIN FEES", comHeader, "DEFERRED TO", "DEFERRED AMOUNT", "INSTRUMENT", "BILLING TERM", "DISCOUNT", "RATE %"],
       ...dataRows,
       [],
-      ["", "", "", "TOTAL SALARY", "", totalPayout.toFixed(2), "", ""],
+      ["", "", "", "TOTAL SALARY", "", totalPayout.toFixed(2), "", "", "", "", "", ""],
     ];
 
     const csv = lines
@@ -93,10 +88,17 @@ export default function PayoutPreview({
     URL.revokeObjectURL(url);
   }
 
+  function formatYMRange(period) {
+    const f = ym => { const [y, m] = ym.split("-"); return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-MY", { month: "short", year: "numeric" }); };
+    const [y, m] = period.startYM.split("-").map(Number);
+    const end = new Date(y, m - 1 + period.months - 1, 1);
+    return `${f(period.startYM)} – ${f(`${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}`)}`;
+  }
+
   function downloadInvoice(d) {
     const now = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-    const studentSlug = d.student.name.replace(/\s+/g, "");
+    const studentSlug = d.name.replace(/\s+/g, "");
     const invoiceNo   = `INV-${studentSlug}-${dateStr}`;
     const issuedDate  = now.toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" });
     const issuedTime  = now.toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" });
@@ -104,9 +106,12 @@ export default function PayoutPreview({
       ? d.collectedAt.toDate().toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" })
       : null;
     const issuedBy     = currentUser?.displayName ?? currentUser?.email ?? "Admin";
-    const sessionType  = d.student.attendanceBased ? "Attendance-Based" : "Full Fee";
-    const sessionLength = d.student.schedule?.duration ?? null;
-    const instrument   = d.student.instrument ?? "—";
+    const sessionType  = d.enrolment.attendanceBased ? "Attendance-Based" : "Full Fee";
+    const sessionLength = d.enrolment.schedule?.duration ?? null;
+    const instrument   = d.enrolment.instrument ?? "—";
+    // What the student actually owes: fee after discount (prorated if attendance-based) less any deposit applied
+    const proratedNet  = d.enrolment.attendanceBased ? (d.scheduled > 0 ? (d.attended / d.scheduled) * d.net : 0) : d.net;
+    const payable      = Math.max(0, proratedNet - (d.depositApplied || 0));
 
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const W = 210;
@@ -151,14 +156,14 @@ export default function PayoutPreview({
 
     y += 6;
     sf(9, "normal", "helvetica", BLK);
-    doc.text(d.student.name, M, y);
+    doc.text(d.name, M, y);
 
     sf(8.5, "normal", "helvetica", GRY);
     doc.text(issuedDate, W - M, y, { align: "right" });
 
     y += 5;
     sf(8, "normal", "helvetica", GRY);
-    const billedLine2Parts = [instrument, d.student.grade, sessionLength ? `${sessionLength} min` : null].filter(Boolean);
+    const billedLine2Parts = [instrument, d.enrolment.grade, sessionLength ? `${sessionLength} min` : null].filter(Boolean);
     doc.text(billedLine2Parts.join("  ·  "), M, y);
 
     y += 5;
@@ -198,14 +203,23 @@ export default function PayoutPreview({
     tableRow("Billing Period",         monthName,    "");
     tableRow("Session Type",           sessionType,  "");
     if (sessionLength) tableRow("Session Length", `${sessionLength} min`, "");
-    tableRow("Monthly Tuition Fee",    `${instrument} · ${d.student.grade}`, `RM ${Number(d.fee || 0).toFixed(2)}`);
+    tableRow("Billing Term", d.period.months > 1 ? `${TERM_LABEL[d.period.term]} · ${formatYMRange(d.period)}` : "Monthly", "");
+    tableRow(d.period.months > 1 ? `Tuition Fee (${d.period.months} months)` : "Monthly Tuition Fee", `${instrument} · ${d.enrolment.grade}`, `RM ${Number(d.fee || 0).toFixed(2)}`);
 
-    if (d.student.attendanceBased) {
+    if (d.discountAmount > 0) {
+      tableRow(`Discount${d.discount?.name ? ` — ${d.discount.name}` : ""}`, "", `- RM ${d.discountAmount.toFixed(2)}`);
+    }
+
+    if (d.enrolment.attendanceBased) {
       tableRow(
         `Attendance Adjustment`,
         `${d.attended} of ${d.scheduled} sessions attended`,
-        `RM ${d.gross.toFixed(2)}`
+        `RM ${proratedNet.toFixed(2)}`
       );
+    }
+
+    if (d.depositApplied > 0) {
+      tableRow("Registration Deposit Applied", "Final month", `- RM ${d.depositApplied.toFixed(2)}`);
     }
 
     if (d.deferredGrossExtra > 0) {
@@ -229,7 +243,7 @@ export default function PayoutPreview({
     doc.rect(0, y, W, 14, "F");
     sf(11, "bold", "helvetica", [255, 255, 255]);
     doc.text("Total", M, y + 9.5);
-    doc.text(`RM ${d.gross.toFixed(2)}`, W - M, y + 9.5, { align: "right" });
+    doc.text(`RM ${payable.toFixed(2)}`, W - M, y + 9.5, { align: "right" });
 
     y += 22;
 
@@ -318,7 +332,8 @@ export default function PayoutPreview({
             Payout for {teacher.name} — {monthName}
           </h2>
           <div style={{ fontSize: 12, color: T.muted }}>
-            {teacher.instruments.join(", ")} · {teacher.commissionPct}% commission
+            {(teacher.instruments ?? []).join(", ")} · {teacher.commissionPct}% default commission
+            {finalized && <span style={{ marginLeft: 8, color: "#FDB52A" }}>· Finalized{latestRev ? ` (revision ${latestRev.revisionNo})` : ""} — read-only</span>}
           </div>
         </div>
 
@@ -342,6 +357,7 @@ export default function PayoutPreview({
             }
           </div>
           <button
+            disabled={!!finalized}
             onClick={() => markPayoutPaid(teacher.id, !isPaid)}
             style={{
               padding: "7px 14px", borderRadius: 4, border: "none", cursor: "pointer",
@@ -381,7 +397,7 @@ export default function PayoutPreview({
               <tbody>
                 {details.map((d, i) => (
                   <tr
-                    key={d.student.id}
+                    key={d.eid}
                     onMouseEnter={() => setHoveredRow(i)}
                     onMouseLeave={() => setHoveredRow(null)}
                     style={{
@@ -391,22 +407,24 @@ export default function PayoutPreview({
                     }}
                   >
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.text, fontWeight: 500 }}>
-                      {d.student.name}
+                      {d.name}
+                      {d.enrolment.instrument && <div style={{ fontSize: 10, color: T.muted, fontWeight: 400 }}>{d.enrolment.instrument}</div>}
                     </td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>
-                      {d.student.grade}
+                      {d.enrolment.grade}
                     </td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>
-                      {d.student.attendanceBased ? "Att. Based" : "Full Fee"}
+                      {d.enrolment.attendanceBased ? "Att. Based" : "Full Fee"}
                     </td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>
-                      {teacher.commissionPct}%
+                      {d.commissionPct}%
                     </td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>
-                      {d.student.attendanceBased ? `${d.attended}/${d.scheduled}` : "N/A"}
+                      {d.enrolment.attendanceBased ? `${d.attended}/${d.scheduled}` : "N/A"}
                     </td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.text }}>
                       RM {d.gross.toFixed(2)}
+                      {d.discountAmount > 0 && <div style={{ fontSize: 10, color: "#4ade80" }}>−RM {d.discountAmount.toFixed(2)} discount</div>}
                     </td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: "#60a5fa", fontWeight: 600 }}>
                       RM {d.teacherCut.toFixed(2)}

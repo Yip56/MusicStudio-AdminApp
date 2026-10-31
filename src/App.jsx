@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { useTheme } from "./hooks/useTheme.js";
@@ -6,10 +6,10 @@ import { useAuth } from "./hooks/useAuth.js";
 import { useNotifications } from "./hooks/useNotifications.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { useClassDeferrals } from "./hooks/useClassDeferrals.js";
+import { useStudio } from "./hooks/useStudio.js";
 import { getTokens } from "./utils/tokens.js";
-import {
-  SEED_STUDENTS, SEED_TEACHERS, SEED_ROOMS, SEED_FEES, SEED_ATTENDANCE, SEED_CONTEMPORARY_FEES
-} from "./data/seed.js";
+import { diffFields } from "./domain/audit.js";
+import { getInstruments } from "./domain/instruments.js";
 
 import Dashboard      from "./views/Dashboard.jsx";
 import Students       from "./views/Students.jsx";
@@ -18,6 +18,9 @@ import Payroll        from "./views/Payroll.jsx";
 import PayoutPreview  from "./views/PayoutPreview.jsx";
 import GradesAndFees  from "./views/GradesAndFees.jsx";
 import RoomsView      from "./views/RoomsView.jsx";
+import DiscountsView  from "./views/DiscountsView.jsx";
+import ArchiveView    from "./views/ArchiveView.jsx";
+import ActivityLogView from "./views/ActivityLogView.jsx";
 import UserManagement from "./views/UserManagement.jsx";
 import Login          from "./views/Login.jsx";
 import AccessDenied   from "./views/AccessDenied.jsx";
@@ -28,8 +31,11 @@ const ALL_NAV = [
   { id: "calendar",  label: "Calendar",      icon: "▦", roles: ["teacher", "admin", "sysadmin"] },
   { id: "students",  label: "Students",      icon: "♪", roles: ["teacher", "admin", "sysadmin"] },
   { id: "payroll",   label: "Payroll",       icon: "₿", roles: ["admin", "sysadmin"] },
+  { id: "discounts", label: "Discounts",     icon: "%", roles: ["admin", "sysadmin"] },
   { id: "grades",    label: "Grades & Fees", icon: "★", roles: ["admin", "sysadmin"] },
   { id: "rooms",     label: "Rooms",         icon: "⊞", roles: ["admin", "sysadmin"] },
+  { id: "archive",   label: "Archive",       icon: "▤", roles: ["teacher", "admin", "sysadmin"] },
+  { id: "activity",  label: "Activity Log",  icon: "≡", roles: ["admin", "sysadmin"] },
   { id: "users",     label: "User Mgmt",     icon: "⚙", roles: ["sysadmin"] },
 ];
 
@@ -48,15 +54,26 @@ export default function App() {
   const [dirty,             setDirty]             = useState(false);
   const [pendingNav,        setPendingNav]        = useState(null);
   const [payoutPreviewCtx,  setPayoutPreviewCtx]  = useState(null);
-  const [students,       setStudents]       = useState(SEED_STUDENTS);
-  const [teachers,       setTeachers]       = useState(SEED_TEACHERS);
-  const [rooms,          setRooms]          = useState(SEED_ROOMS);
-  const [fees,           setFees]           = useState(SEED_FEES);
-  const [contemporaryFees, setContemporaryFees] = useState(SEED_CONTEMPORARY_FEES);
-  const [attendanceOverrides, setAttendanceOverrides] = useState(SEED_ATTENDANCE);
-  const [adminFlatFee,   setAdminFlatFee]   = useState(5);
-  const [oneOffSessions, setOneOffSessions] = useState([]);
+  const [fees,             setFees]             = useState({});
+  const [contemporaryFees, setContemporaryFees] = useState({});
+  const [feesLoaded,       setFeesLoaded]       = useState(false);
+  const feesBaseline = useRef({ fees: {}, contemporaryFees: {} });
   const { deferrals, addDeferral, removeDeferral, updateDeferralStatus } = useClassDeferrals();
+
+  const signedIn = !!user && role !== "denied" && !loading;
+  const currentUser = user ? {
+    uid:         user.uid,
+    role,
+    teacherId:   firestoreUser?.teacherId ?? null,
+    displayName: user.displayName ?? firestoreUser?.displayName ?? "",
+    photoURL:    user.photoURL    ?? firestoreUser?.photoURL    ?? null,
+    email:       user.email,
+  } : null;
+
+  // All studio data (students, enrolments, deposits, teachers, rooms, attendance…) lives in Firestore
+  const studio = useStudio({ enabled: signedIn, actor: currentUser, fees, contemporaryFees });
+  const { students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
+          monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, actions, log } = studio;
 
   useEffect(() => {
     if (!dirty) return;
@@ -65,7 +82,7 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", h);
   }, [dirty]);
 
-  // Load fees from Firestore once authenticated; fall back to seed defaults on first run
+  // Load fees from Firestore once authenticated. The fee tables ARE the instrument list.
   useEffect(() => {
     if (!user?.uid) return;
     let cancelled = false;
@@ -76,15 +93,27 @@ export default function App() {
           getDoc(doc(db, "fees", "contemporary")),
         ]);
         if (cancelled) return;
-        if (cs.exists()) setFees(cs.data());
-        if (co.exists()) setContemporaryFees(co.data());
-      } catch {
-        // keep seed defaults on Firestore read error
+        const c = cs.exists() ? cs.data() : {};
+        const t = co.exists() ? co.data() : {};
+        setFees(c); setContemporaryFees(t);
+        feesBaseline.current = { fees: c, contemporaryFees: t };
+      } catch (e) {
+        console.error("[fees] load failed:", e.message);
       }
+      if (!cancelled) setFeesLoaded(true);
     }
     loadFees();
     return () => { cancelled = true; };
   }, [user?.uid]);
+
+  // Instruments removed from Grades & Fees → drop dangling references (admins only, once fees + data are loaded)
+  const cleaned = useRef(false);
+  useEffect(() => {
+    if (cleaned.current || !feesLoaded || !studio.loaded || instruments.length === 0) return;
+    if (role !== "admin" && role !== "sysadmin") return;
+    cleaned.current = true;
+    actions.cleanupInstruments().catch(e => console.error("[instrument cleanup]", e.message));
+  }, [feesLoaded, studio.loaded, instruments.length, role]);
 
   function navigateTo(id) {
     if (dirty) { setPendingNav(id); return; }
@@ -92,35 +121,50 @@ export default function App() {
   }
 
   // ── Auth gates ──────────────────────────────────────────────────────────────
-  if (loading) return (
+  const spinner = (
     <div style={{ minHeight: "100vh", background: "#081028", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <style>{`@keyframes _spin { to { transform: rotate(360deg); } }`}</style>
       <div style={{ width: 40, height: 40, border: "3px solid #212C4D", borderTop: "3px solid #CB3CFF", borderRadius: "50%", animation: "_spin 0.8s linear infinite" }} />
     </div>
   );
+  if (loading) return spinner;
 
   if (!user)            return <Login onSignIn={signInWithGoogle} error={authError} />;
   if (role === "denied") return <AccessDenied email={user.email} onSignOut={signOut} />;
+  if (!feesLoaded || !studio.loaded) return spinner;
 
   // ── Derived state ────────────────────────────────────────────────────────────
   const nav          = ALL_NAV.filter(n => n.roles.includes(role));
   const effectiveView = (view && (nav.some(n => n.id === view) || view === "payout_preview")) ? view : nav[0]?.id;
 
-  const currentUser = {
-    uid:         user.uid,
-    role,
-    teacherId:   firestoreUser?.teacherId ?? null,
-    displayName: user.displayName ?? firestoreUser?.displayName ?? "",
-    photoURL:    user.photoURL    ?? firestoreUser?.photoURL    ?? null,
-    email:       user.email,
-  };
-
   // ── Firestore write helpers ──────────────────────────────────────────────────
   async function saveFees() {
+    const before = feesBaseline.current;
     await Promise.all([
       setDoc(doc(db, "fees", "classical"),    fees),
       setDoc(doc(db, "fees", "contemporary"), contemporaryFees),
     ]);
+    const was = getInstruments(before.fees, before.contemporaryFees);
+    const now = getInstruments(fees, contemporaryFees);
+    const changedCells = (a, b) => {
+      let n = 0;
+      for (const inst of new Set([...Object.keys(a), ...Object.keys(b)])) {
+        for (const g of new Set([...Object.keys(a[inst] ?? {}), ...Object.keys(b[inst] ?? {})])) {
+          for (const d of ["30", "45", "60"]) if ((a[inst]?.[g]?.[d] ?? null) !== (b[inst]?.[g]?.[d] ?? null)) n++;
+        }
+      }
+      return n;
+    };
+    const cells = changedCells(before.fees, fees) + changedCells(before.contemporaryFees, contemporaryFees);
+    const added = now.filter(i => !was.includes(i)), removed = was.filter(i => !now.includes(i));
+    await log({
+      type: "fee", action: "schedule",
+      summary: `Fee schedule saved: ${cells} price(s) changed${added.length ? `, added ${added.join(", ")}` : ""}${removed.length ? `, removed ${removed.join(", ")}` : ""}`,
+      changes: [
+        ...(added.length || removed.length ? diffFields({ instruments: was }, { instruments: now }) : []),
+      ],
+    });
+    feesBaseline.current = { fees: structuredClone(fees), contemporaryFees: structuredClone(contemporaryFees) };
     setDirty(false);
   }
 
@@ -150,33 +194,33 @@ export default function App() {
   async function handleResolve(notif, status) {
     await resolveNotification(notif.id, status, currentUser.uid);
     if (notif.type === "clash_request") {
-      if (status === "approved") {
-        setOneOffSessions(prev => prev.map(s => s.id === notif.sessionId ? { ...s, status: "pending" } : s));
-      } else {
-        setOneOffSessions(prev => prev.filter(s => s.id !== notif.sessionId));
-      }
+      if (status === "approved") await actions.updateOneOff(notif.sessionId, { status: "pending" }).catch(() => {});
+      else                       await actions.deleteOneOff(notif.sessionId).catch(() => {});
     }
     if (notif.type === "grade_request" && status === "approved") {
-      setStudents(prev => prev.map(s => s.id === notif.studentId ? { ...s, grade: notif.requestedGrade } : s));
+      const e = enrolments.find(x => x.id === notif.enrolmentId);
+      if (e) await actions.updateEnrolment(e, { grade: notif.requestedGrade });
     }
+    log({
+      type: "notification", action: status,
+      summary: `${status === "approved" ? "Approved" : "Rejected"} ${notif.type === "clash_request" ? "room clash request" : notif.type === "grade_request" ? "grade request" : notif.type}`,
+      entity: { kind: "notification", id: notif.id },
+    });
   }
 
   // ── Shared props ─────────────────────────────────────────────────────────────
   const shared = {
-    students, setStudents,
-    teachers, setTeachers,
-    rooms,    setRooms,
+    students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
+    monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, actions, log,
     fees,     setFees,
     contemporaryFees, setContemporaryFees,
-    attendanceOverrides, setAttendanceOverrides,
-    adminFlatFee, setAdminFlatFee,
-    oneOffSessions, setOneOffSessions,
     deferrals, addDeferral, removeDeferral, updateDeferralStatus,
     saveFees,
     T,
     currentUser,
     isMobile,
     setDirty,
+    goTo: navigateTo,
   };
 
   function openPayoutPreview(teacher, year, month) {
@@ -189,8 +233,11 @@ export default function App() {
     calendar:       <CalendarView {...shared} sendClashRequest={sendClashRequest} />,
     students:       <Students     {...shared} sendGradeRequest={sendGradeRequest} />,
     payroll:        <Payroll      {...shared} openPayoutPreview={openPayoutPreview} />,
+    discounts:      <DiscountsView {...shared} />,
     grades:         <GradesAndFees {...shared} />,
     rooms:          <RoomsView    {...shared} />,
+    archive:        <ArchiveView  {...shared} />,
+    activity:       <ActivityLogView {...shared} />,
     users:          <UserManagement {...shared} />,
     payout_preview: payoutPreviewCtx
       ? <PayoutPreview
@@ -224,6 +271,7 @@ export default function App() {
         {notifications.map(n => {
           const fromTeacher = teachers.find(t => t.id === n.fromTeacherId);
           const student     = students.find(s => s.id === n.studentId);
+          const enrol       = enrolments.find(e => e.id === n.enrolmentId);
           const room        = rooms.find(r => r.id === n.requestedRoomId);
           const isClash     = n.type === "clash_request";
           const isGrade     = n.type === "grade_request";
@@ -250,8 +298,12 @@ export default function App() {
                   <>
                     Teacher <strong>{fromTeacher?.name ?? "—"}</strong> requests grade update for{" "}
                     <strong>{student?.name ?? "—"}</strong>:{" "}
-                    <strong>{student?.grade}</strong> → <strong>{n.requestedGrade}</strong>.{" "}
+                    {enrol?.instrument && <>({enrol.instrument}) </>}
+                    <strong>{enrol?.grade}</strong> → <strong>{n.requestedGrade}</strong>.{" "}
                     Reason: {n.reason}
+                    <div style={{ marginTop: 6, color: T.muted, fontSize: 11 }}>
+                      Approving changes the grade for future fees only — a fee that is already collected keeps its amount.
+                    </div>
                   </>
                 )}
                 {isTrial && (

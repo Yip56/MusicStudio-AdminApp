@@ -1,10 +1,12 @@
 import { useState, useMemo } from "react";
 import { Btn, Badge, Card, SectionTitle, Sel, Modal } from "../components/UI.jsx";
-import { getMergedSessionsForDate, getRecurringDates, fmtDate, uid, timesOverlap } from "../utils/helpers.js";
+import { fmtDate, uid } from "../utils/helpers.js";
+import { getMergedSessionsForDate, roomSupportsInstrument } from "../domain/enrolments.js";
+import { timesOverlap } from "../domain/time.js";
 import { TODAY, STATUS_META, HOURS } from "../data/seed.js";
 
 // ─── Session Card — click to open attendance popup ────────────────────────────
-function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, onDeleteSession, T, currentUser }) {
+function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, onDeleteSession, T, currentUser }) {
   const defaultDefer = (() => {
     const d = new Date(sess.date + "T00:00:00");
     d.setDate(d.getDate() + 7);
@@ -77,7 +79,9 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
             }
           </div>
         </div>
-        <div style={{ fontSize:12, fontWeight:600, color:isOwnSession ? T.text : T.muted, marginBottom:2 }}>{displayName}</div>
+        <div style={{ fontSize:12, fontWeight:600, color:isOwnSession ? T.text : T.muted, marginBottom:2 }}>
+          {displayName}{isOwnSession && enrolment?.instrument && <span style={{ fontWeight:500, color:roomColor }}> · {enrolment.instrument}</span>}
+        </div>
         {isOwnSession && <div style={{ fontSize:11, color:T.muted }}>{teacher?.name ?? "—"}</div>}
         {sess.notes && isOwnSession && <div style={{ fontSize:10, color:T.muted, marginTop:3, fontStyle:"italic" }}>{sess.notes}</div>}
       </div>
@@ -102,7 +106,7 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
               <div>
                 <div style={{ fontWeight:700, color:T.text, fontSize:14, marginBottom:2 }}>{displayName}</div>
-                <div style={{ color:T.muted, fontSize:11 }}>{sess.startTime}–{sess.endTime} · {teacher?.name ?? "—"}</div>
+                <div style={{ color:T.muted, fontSize:11 }}>{sess.startTime}–{sess.endTime} · {enrolment?.instrument ? enrolment.instrument + " · " : ""}{teacher?.name ?? "—"}</div>
               </div>
               <button onClick={tryClose} style={{ background:"none", border:"none", color:T.muted, fontSize:22, cursor:"pointer", padding:"0 2px", lineHeight:1 }}>×</button>
             </div>
@@ -189,7 +193,7 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
             )}
 
             {/* Defer Class — only for non-attendance-based, non-makeup, non-already-deferred sessions */}
-            {!student?.attendanceBased && !sess.isMakeup && !sess.isDeferred && (
+            {!enrolment?.attendanceBased && !sess.isMakeup && !sess.isDeferred && (
               <>
                 <button
                   onClick={() => setShowDefer(v => !v)}
@@ -248,8 +252,8 @@ function SessionCard({ sess, student, teacher, room, onStatusChange, onScheduleM
 
 // ─── Main Calendar view ───────────────────────────────────────────────────────
 export default function CalendarView({
-  students, teachers, rooms, attendanceOverrides, setAttendanceOverrides,
-  oneOffSessions, setOneOffSessions,
+  students, enrolments, teachers, rooms, attendance, actions,
+  oneOffSessions,
   deferrals, addDeferral, removeDeferral, updateDeferralStatus,
   T, currentUser, sendClashRequest, isMobile, setDirty,
 }) {
@@ -260,16 +264,17 @@ export default function CalendarView({
   const [viewMode, setViewMode] = useState("both");
 
   const [bookModal,     setBookModal]     = useState(null);
-  const [bookForm,      setBookForm]      = useState({ studentId: "", startTime: "09:00", endTime: "10:00" });
+  const [bookForm,      setBookForm]      = useState({ enrolmentId: "", startTime: "09:00", endTime: "10:00" });
   const [clashWarning,  setClashWarning]  = useState(null);
   const [bookSuccess,   setBookSuccess]   = useState(false);
   const [bookTimeError, setBookTimeError] = useState(null);
+  const [bookBusy,      setBookBusy]      = useState(false);
 
   const isTeacher  = currentUser?.role === "teacher";
 
   const daySessions = useMemo(
-    () => getMergedSessionsForDate(selDate, students, attendanceOverrides),
-    [selDate, students, attendanceOverrides]
+    () => getMergedSessionsForDate(selDate, enrolments, attendance),
+    [selDate, enrolments, attendance]
   );
 
   const allDaySessions = useMemo(() => {
@@ -281,11 +286,12 @@ export default function CalendarView({
     (deferrals ?? [])
       .filter(d => d.makeupDate === selDate)
       .map(d => {
-        const st = students.find(s => s.id === d.studentId);
+        const st = enrolments.find(e => e.id === d.enrolmentId);
         return {
           id:           `makeup_${d.id}`,
           deferralId:   d.id,
-          studentId:    d.studentId,
+          enrolmentId:  d.enrolmentId,
+          studentId:    st?.studentId,
           teacherId:    d.teacherId,
           roomId:       st?.schedule?.roomId ?? "",
           date:         selDate,
@@ -298,7 +304,7 @@ export default function CalendarView({
           status:       d.makeupStatus ?? "pending",
         };
       }),
-    [deferrals, selDate, students]
+    [deferrals, selDate, enrolments]
   );
 
   const combinedSessions = useMemo(() => {
@@ -306,7 +312,7 @@ export default function CalendarView({
     return all.map(sess => {
       // Tag recurring sessions that have been deferred (and not yet explicitly marked present/absent)
       if (!sess.isMakeup && !sess.isOneOff && sess.status === "pending") {
-        const deferral = deferrals?.find(d => d.studentId === sess.studentId && d.originalDate === sess.date);
+        const deferral = deferrals?.find(d => d.enrolmentId === sess.enrolmentId && d.originalDate === sess.date);
         if (deferral) {
           return { ...sess, status: "deferred", isDeferred: true, deferralId: deferral.id, makeupDate: deferral.makeupDate };
         }
@@ -321,39 +327,32 @@ export default function CalendarView({
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      counts[dt] = getMergedSessionsForDate(dt, students, attendanceOverrides).length
+      counts[dt] = getMergedSessionsForDate(dt, enrolments, attendance).length
         + (oneOffSessions ?? []).filter(s => s.date === dt).length
         + (deferrals ?? []).filter(d => d.makeupDate === dt).length;
     }
     return counts;
-  }, [calYear, calMonth, students, attendanceOverrides, oneOffSessions, deferrals]);
+  }, [calYear, calMonth, enrolments, attendance, oneOffSessions, deferrals]);
 
   function handleStatusChange(sess, status) {
     if (sess.isMakeup) {
       // Makeup sessions store attendance on the deferral doc to avoid key collision with recurring sessions
       updateDeferralStatus(sess.deferralId, status === "pending" ? null : status);
     } else if (sess.isOneOff) {
-      setOneOffSessions(prev => prev.map(s => s.id === sess.id ? { ...s, status } : s));
+      actions.updateOneOff(sess.id, { status });
     } else {
-      // Recurring sessions use attendanceOverrides keyed by (studentId, date)
-      setAttendanceOverrides(prev => {
-        if (status === "pending") {
-          // Unmark — remove the override entirely
-          return prev.filter(a => !(a.studentId === sess.studentId && a.date === sess.date));
-        }
-        const existing = prev.find(a => a.studentId === sess.studentId && a.date === sess.date);
-        if (existing) return prev.map(a => a.studentId === sess.studentId && a.date === sess.date ? { ...a, status } : a);
-        return [...prev, { id: uid(), studentId: sess.studentId, date: sess.date, status, notes: "" }];
-      });
+      // Recurring sessions: one attendance doc per (enrolment, date); "pending" removes it
+      actions.setAttendance(sess.enrolmentId, sess.date, status);
     }
   }
 
   function handleDeleteSession(sess) {
-    setOneOffSessions(prev => prev.filter(s => s.id !== sess.id));
+    actions.deleteOneOff(sess.id);
   }
 
   function handleScheduleMakeup(sess, makeupDate, makeupStartTime, makeupEndTime) {
     addDeferral({
+      enrolmentId:  sess.enrolmentId,
       studentId:    sess.studentId,
       teacherId:    sess.teacherId,
       originalDate: sess.date,
@@ -371,36 +370,60 @@ export default function CalendarView({
   function prevMonth() { const d = new Date(calYear, calMonth - 1, 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()); }
   function nextMonth() { const d = new Date(calYear, calMonth + 1, 1); setCalYear(d.getFullYear()); setCalMonth(d.getMonth()); }
 
-  const bookableStudents = isTeacher
-    ? students.filter(s => s.teacherId === currentUser.teacherId)
-    : students;
+  // One bookable entry per live enrolment, so a two-instrument student is listed once per instrument
+  const bookable = enrolments
+    .filter(e => e.status !== "stopped" || (e.endDate && e.endDate >= TODAY))
+    .filter(e => !isTeacher || e.teacherId === currentUser.teacherId)
+    .map(e => ({ e, label: `${students.find(s => s.id === e.studentId)?.name ?? "?"} — ${e.instrument ?? "no instrument"}` }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   function openBookModal(roomId) {
     const defaultTeacherId = isTeacher ? currentUser.teacherId : (teachers[0]?.id ?? "");
-    setBookForm({ studentId: bookableStudents[0]?.id ?? "", startTime: "09:00", endTime: "10:00", teacherId: defaultTeacherId });
+    setBookForm({ enrolmentId: bookable[0]?.e.id ?? "", startTime: "09:00", endTime: "10:00", teacherId: defaultTeacherId });
     setBookModal({ roomId });
     setBookSuccess(false);
     setClashWarning(null);
     setBookTimeError(null);
   }
 
-  function checkAndBook() {
-    if (!bookForm.studentId || !bookForm.startTime || !bookForm.endTime) return;
+  async function checkAndBook() {
+    if (!bookForm.enrolmentId || !bookForm.startTime || !bookForm.endTime) return;
     if (bookForm.endTime <= bookForm.startTime) {
       setBookTimeError("End time must be after start time.");
       return;
     }
     setBookTimeError(null);
-    const student = students.find(s => s.id === bookForm.studentId);
+    const enrol   = enrolments.find(e => e.id === bookForm.enrolmentId);
     const { roomId } = bookModal;
+    const room    = rooms.find(r => r.id === roomId);
+    const teacherId = bookForm.teacherId || enrol?.teacherId || currentUser.teacherId;
+
+    // Hard rules (no override): the room must suit the instrument, and neither the student nor
+    // the teacher can be in two places at once.
+    if (!roomSupportsInstrument(room, enrol?.instrument)) {
+      setBookTimeError(`${room?.name ?? "This room"} is not set up for ${enrol?.instrument ?? "this instrument"}.`);
+      return;
+    }
+    const overlaps = s => s.status !== "pending_approval" && timesOverlap(bookForm.startTime, bookForm.endTime, s.startTime, s.endTime);
+    if (combinedSessions.some(s => s.studentId === enrol?.studentId && overlaps(s))) {
+      setBookTimeError("This student already has another class at that time.");
+      return;
+    }
+    if (combinedSessions.some(s => s.teacherId === teacherId && overlaps(s))) {
+      setBookTimeError("This teacher is already teaching at that time.");
+      return;
+    }
+
+    // A booked room can still be requested from the other teacher (clash request flow)
     const roomSessions = combinedSessions.filter(s => s.roomId === roomId);
     const clash = roomSessions.find(s =>
       timesOverlap(bookForm.startTime, bookForm.endTime, s.startTime, s.endTime)
     );
     const newSession = {
       id:        uid(),
-      studentId: bookForm.studentId,
-      teacherId: bookForm.teacherId || student?.teacherId || currentUser.teacherId,
+      enrolmentId: bookForm.enrolmentId,
+      studentId: enrol?.studentId,
+      teacherId,
       roomId,
       date:      selDate,
       startTime: bookForm.startTime,
@@ -409,9 +432,13 @@ export default function CalendarView({
       isOneOff:  true,
     };
     if (!clash) {
-      setOneOffSessions(prev => [...prev, { ...newSession, status: "pending" }]);
-      setBookSuccess(true);
-      setDirty?.(false);
+      try {
+        setBookBusy(true);
+        await actions.addOneOff({ ...newSession, status: "pending" });
+        setBookSuccess(true);
+        setDirty?.(false);
+      } catch (e) { setBookTimeError(e.message); }
+      setBookBusy(false);
     } else {
       const clashTeacher = teachers.find(t => t.id === clash.teacherId);
       setClashWarning({ newSession, clash, clashTeacher });
@@ -421,11 +448,12 @@ export default function CalendarView({
   async function confirmClashRequest() {
     const { newSession, clash, clashTeacher } = clashWarning;
     const pendingSession = { ...newSession, status: "pending_approval" };
-    setOneOffSessions(prev => [...prev, pendingSession]);
+    await actions.addOneOff(pendingSession);
     await sendClashRequest({
       fromTeacherId:      currentUser.teacherId,
       toTeacherId:        clash.teacherId,
       studentId:          clash.studentId,
+      enrolmentId:        clash.enrolmentId ?? null,
       requestedDate:      selDate,
       requestedStartTime: newSession.startTime,
       requestedEndTime:   newSession.endTime,
@@ -507,10 +535,11 @@ export default function CalendarView({
                 )}
                 {roomSess.map(sess => {
                   const st = students.find(s => s.id === sess.studentId);
+                  const en = enrolments.find(e => e.id === sess.enrolmentId);
                   const tc = teachers.find(t => t.id === sess.teacherId);
                   return (
                     <div key={sess.id}>
-                      <SessionCard sess={sess} student={st} teacher={tc} room={room}
+                      <SessionCard sess={sess} student={st} enrolment={en} teacher={tc} room={room}
                         onStatusChange={handleStatusChange}
                         onScheduleMakeup={handleScheduleMakeup}
                         onRemoveDeferral={removeDeferral}
@@ -561,10 +590,10 @@ export default function CalendarView({
                 <option value="">— Select teacher —</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </Sel>
-              <Sel T={T} label="Student" value={bookForm.studentId}
-                onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, studentId: e.target.value })); }}>
-                {bookableStudents.length === 0 && <option value="">No students</option>}
-                {bookableStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <Sel T={T} label="Student — instrument" value={bookForm.enrolmentId}
+                onChange={e => { setDirty?.(true); setBookForm(f => ({ ...f, enrolmentId: e.target.value })); }}>
+                {bookable.length === 0 && <option value="">No students</option>}
+                {bookable.map(b => <option key={b.e.id} value={b.e.id}>{b.label}</option>)}
               </Sel>
               <div style={{ display: "flex", gap: 11 }}>
                 <Sel T={T} label="Start Time" value={bookForm.startTime}
@@ -583,7 +612,7 @@ export default function CalendarView({
               )}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
                 <Btn T={T} variant="ghost" onClick={() => { setBookModal(null); setDirty?.(false); }}>Cancel</Btn>
-                <Btn T={T} onClick={checkAndBook}>Check & Book</Btn>
+                <Btn T={T} disabled={bookBusy} onClick={checkAndBook}>Check & Book</Btn>
               </div>
             </div>
           )}

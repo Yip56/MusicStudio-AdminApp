@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import { Card, Btn, Badge, Modal, Inp, Sel, SectionTitle } from "../components/UI.jsx";
-import { TODAY, INSTRUMENTS, ROOM_COLORS, STATUS_META } from "../data/seed.js";
-import { getMergedSessionsForDate, uid } from "../utils/helpers.js";
+import { TODAY, ROOM_COLORS, STATUS_META } from "../data/seed.js";
+import { getMergedSessionsForDate } from "../domain/enrolments.js";
 
-export default function RoomsView({ rooms, setRooms, students, teachers, attendanceOverrides, T, isMobile, setDirty }) {
+export default function RoomsView({ rooms, enrolments, students, teachers, attendance, instruments, actions, T, isMobile, setDirty }) {
+  const [pageError, setPageError] = useState(null);
   const [selRoom,  setSelRoom]  = useState(null);
   const [modal,    setModal]    = useState(null);
   const [form,     setForm]     = useState({});
@@ -12,12 +13,12 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
 
   const roomSessions = useMemo(() => {
     if (!selRoom) return [];
-    return getMergedSessionsForDate(viewDate, students, attendanceOverrides)
+    return getMergedSessionsForDate(viewDate, enrolments, attendance)
       .filter(s => s.roomId === selRoom.id)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
-  }, [selRoom, viewDate, students, attendanceOverrides]);
+  }, [selRoom, viewDate, enrolments, attendance]);
 
-  const todaySessions = useMemo(() => getMergedSessionsForDate(TODAY, students, attendanceOverrides), [students, attendanceOverrides]);
+  const todaySessions = useMemo(() => getMergedSessionsForDate(TODAY, enrolments, attendance), [enrolments, attendance]);
 
   const filteredRooms = rooms.filter(r => {
     const occupied = todaySessions.some(s => s.roomId === r.id);
@@ -26,16 +27,25 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
     return true;
   });
 
-  function openAdd()   { setForm({ name: "", type: "Piano", color: ROOM_COLORS[0] }); setModal("add"); }
-  function openEdit(r) { setForm({ ...r }); setModal(r); }
-  function save() {
-    if (!form.name.trim()) return;
-    if (modal === "add") setRooms(p => [...p, { ...form, id: uid() }]);
-    else setRooms(p => p.map(r => r.id === modal.id ? { ...form, id: r.id } : r));
-    setModal(null);
-    setDirty?.(false);
+  function openAdd()   { setPageError(null); setForm({ name: "", types: [], color: ROOM_COLORS[0] }); setModal("add"); }
+  function openEdit(r) { setPageError(null); setForm({ name: r.name, types: [...(r.types ?? [])], color: r.color }); setModal(r); }
+  async function save() {
+    try {
+      await actions.saveRoom(modal === "add" ? null : modal.id, form);
+      setModal(null);
+      setDirty?.(false);
+    } catch (e) { setPageError(e.message); }
   }
-  function remove(id) { if (confirm("Remove room?")) { setRooms(p => p.filter(r => r.id !== id)); if (selRoom?.id === id) setSelRoom(null); } }
+  async function remove(id) {
+    if (!confirm("Remove room?")) return;
+    try { await actions.removeRoom(id); if (selRoom?.id === id) setSelRoom(null); }
+    catch (e) { setPageError(e.message); }
+  }
+  const typeLabel = r => (r.types ?? []).join(", ") || "No type set";
+  function toggleType(t) {
+    setDirty?.(true);
+    setForm(f => ({ ...f, types: f.types.includes(t) ? f.types.filter(x => x !== t) : [...f.types, t] }));
+  }
 
   const roomDetailPanel = selRoom && (
     <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
@@ -112,9 +122,23 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
     <Modal T={T} title={modal === "add" ? "Add Room" : "Edit Room"} onClose={() => { setModal(null); setDirty?.(false); }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
         <Inp T={T} label="Room Name" value={form.name} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, name: e.target.value })); }} />
-        <Sel T={T} label="Room Type" value={form.type} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, type: e.target.value })); }}>
-          {INSTRUMENTS.map(i => <option key={i}>{i}</option>)}
-        </Sel>
+        <div>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Room types (select all that apply)</div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {instruments.map(t => {
+              const on = form.types?.includes(t);
+              return (
+                <button key={t} onClick={() => toggleType(t)} style={{
+                  padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+                  background: on ? T.accent + "22" : T.dim, color: on ? T.accent : T.muted, outline: on ? `1px solid ${T.accent}55` : "none",
+                }}>{t}</button>
+              );
+            })}
+            {instruments.length === 0 && <span style={{ fontSize: 12, color: T.muted }}>Add instruments on the Grades & Fees page first.</span>}
+          </div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>A class can only be placed in a room whose types include its instrument.</div>
+        </div>
+        {pageError && <div style={{ fontSize: 12, color: "#FF5A65" }}>{pageError}</div>}
         <div>
           <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Color</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -142,6 +166,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
           <Btn T={T} onClick={openAdd} style={{ padding: "7px 14px", fontSize: 12 }}>+ Add</Btn>
         </div>
 
+        {pageError && !modal && <div style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</div>}
         {/* Filter tabs */}
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           {["all","free","occupied"].map(f => (
@@ -170,7 +195,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{r.name}</div>
-                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{r.type}</div>
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{typeLabel(r)}</div>
                     </div>
                     <div style={{ display: "flex", gap: 5 }}>
                       <Btn T={T} variant="ghost" style={{ padding: "3px 9px", fontSize: 11 }} onClick={e => { e.stopPropagation(); openEdit(r); }}>Edit</Btn>
@@ -222,6 +247,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
         </div>
       </div>
 
+      {pageError && !modal && <div style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</div>}
       <div style={{ display: "grid", gridTemplateColumns: selRoom ? "1fr 1.6fr" : "1fr", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10, alignContent: "start" }}>
           {filteredRooms.map(r => {
@@ -240,7 +266,7 @@ export default function RoomsView({ rooms, setRooms, students, teachers, attenda
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{r.name}</div>
-                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{r.type}</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{typeLabel(r)}</div>
                   </div>
                   <div style={{ display: "flex", gap: 5 }}>
                     <Btn T={T} variant="ghost" style={{ padding: "3px 9px", fontSize: 11 }} onClick={e => { e.stopPropagation(); openEdit(r); }}>Edit</Btn>

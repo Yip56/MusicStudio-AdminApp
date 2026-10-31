@@ -1,34 +1,37 @@
 import { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { Card, Btn, SectionTitle, Modal } from "../components/UI.jsx";
-import { GRADE_LABELS, CONTEMPORARY_GRADE_LABELS } from "../data/seed.js";
+import { GRADE_LABELS, CONTEMPORARY_GRADE_LABELS, TODAY } from "../data/seed.js";
+import { getInstruments, canDeleteInstrument, INSTRUMENT_IN_USE_MESSAGE } from "../domain/instruments.js";
 
 const DURATIONS = ["30", "45", "60"];
 const DEFAULT_CLASSICAL_ROW = { "30": 0, "45": 0, "60": 0 };
 
-export default function GradesAndFees({ fees, setFees, contemporaryFees, setContemporaryFees, saveFees, T, isMobile, setDirty }) {
+export default function GradesAndFees({ fees, setFees, contemporaryFees, setContemporaryFees, saveFees, teachers = [], enrolments = [], students = [], T, isMobile, setDirty }) {
   const [syllabus,      setSyllabus]      = useState("classical");
-  const [feeInst,       setFeeInst]       = useState(() => Object.keys(fees)[0] ?? "Piano");
+  const [feeInst,       setFeeInst]       = useState(() => getInstruments(fees, contemporaryFees)[0] ?? "");
   const [saveStatus,    setSaveStatus]    = useState("idle");   // idle | saving | saved | error
   const [importStatus,  setImportStatus]  = useState("idle");   // idle | importing | imported | error
   const [addingInst,    setAddingInst]    = useState(false);
   const [newInstName,   setNewInstName]   = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [blocked,       setBlocked]       = useState(null);   // usage report when an instrument can't be deleted
 
   const fileInputRef = useRef(null);
 
-  // Dynamic instrument list derived from fees (Firestore source of truth)
-  const instruments = Object.keys(fees);
+  // The instrument list for the WHOLE app is defined here (keys of the fee tables)
+  const instruments = getInstruments(fees, contemporaryFees);
+  const activeInst  = instruments.includes(feeInst) ? feeInst : (instruments[0] ?? "");
 
   // ── Manual cell edits ──────────────────────────────────────────────────────
   function setClassicalFee(grade, duration, val) {
-    setFees(p => ({ ...p, [feeInst]: { ...p[feeInst], [grade]: { ...p[feeInst]?.[grade], [duration]: Number(val) } } }));
+    setFees(p => ({ ...p, [activeInst]: { ...p[activeInst], [grade]: { ...p[activeInst]?.[grade], [duration]: Number(val) } } }));
     setDirty(true);
     setSaveStatus("idle");
   }
 
   function setContemporaryFee(grade, duration, val) {
-    setContemporaryFees(p => ({ ...p, [feeInst]: { ...p[feeInst], [grade]: { ...p[feeInst]?.[grade], [duration]: Number(val) } } }));
+    setContemporaryFees(p => ({ ...p, [activeInst]: { ...p[activeInst], [grade]: { ...p[activeInst]?.[grade], [duration]: Number(val) } } }));
     setDirty(true);
     setSaveStatus("idle");
   }
@@ -60,11 +63,19 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
     setSaveStatus("idle");
   }
 
+  // Deleting is blocked for everyone (sysadmin included) while a teacher or a live enrolment uses it
+  function requestRemove() {
+    const check = canDeleteInstrument(activeInst, { teachers, enrolments }, TODAY);
+    if (!check.ok) { setBlocked(check); return; }
+    setConfirmRemove(true);
+  }
+
   function removeInstrument() {
-    if (instruments.length <= 1) return;
-    setFees(p => { const n = { ...p }; delete n[feeInst]; return n; });
-    setContemporaryFees(p => { const n = { ...p }; delete n[feeInst]; return n; });
-    setFeeInst(instruments.find(i => i !== feeInst) ?? "");
+    const check = canDeleteInstrument(activeInst, { teachers, enrolments }, TODAY);
+    if (!check.ok) { setConfirmRemove(false); setBlocked(check); return; }
+    setFees(p => { const n = { ...p }; delete n[activeInst]; return n; });
+    setContemporaryFees(p => { const n = { ...p }; delete n[activeInst]; return n; });
+    setFeeInst(instruments.find(i => i !== activeInst) ?? "");
     setConfirmRemove(false);
     setDirty(true);
     setSaveStatus("idle");
@@ -208,7 +219,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
                       <span style={{ fontSize: 11, color: T.muted }}>RM</span>
                       <input
                         type="number"
-                        value={feeSrc[feeInst]?.[grade]?.[d] ?? 0}
+                        value={feeSrc[activeInst]?.[grade]?.[d] ?? 0}
                         onChange={e => onChange(grade, d, e.target.value)}
                         style={{
                           width: 64, background: T.input, border: `1px solid ${T.border2}`,
@@ -281,7 +292,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
       {/* Instrument selector */}
       <div style={{ display: "flex", gap: 7, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {instruments.map(i => (
-          <Btn key={i} T={T} variant={feeInst === i ? "primary" : "ghost"}
+          <Btn key={i} T={T} variant={activeInst === i ? "primary" : "ghost"}
             style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}}
             onClick={() => { setFeeInst(i); setAddingInst(false); }}>
             {i}
@@ -315,43 +326,72 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
         )}
 
         {/* Remove current instrument — pushed to right */}
-        {instruments.length > 1 && !addingInst && (
+        {instruments.length > 0 && !addingInst && (
           <Btn T={T} variant="danger"
             style={{ marginLeft: "auto", fontSize: 12, padding: "6px 12px" }}
-            onClick={() => setConfirmRemove(true)}>
-            Remove {feeInst}
+            onClick={requestRemove}>
+            Remove {activeInst}
           </Btn>
         )}
       </div>
 
-      {/* Remove confirmation modal */}
-      {confirmRemove && (
-        <Modal T={T} title={`Remove ${feeInst}?`} onClose={() => setConfirmRemove(false)} width={380}>
-          <p style={{ fontSize: 13, color: T.textSub, marginBottom: 20, lineHeight: 1.6 }}>
-            This will delete all fee data for <b style={{ color: T.text }}>{feeInst}</b> from both Classical and Contemporary schedules. This cannot be undone without clicking Save Changes first.
-          </p>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <Btn T={T} variant="ghost"  onClick={() => setConfirmRemove(false)}>Cancel</Btn>
-            <Btn T={T} variant="danger" onClick={removeInstrument}>Confirm Delete {feeInst}</Btn>
+      {/* Blocked: instrument still has teachers / students */}
+      {blocked && (
+        <Modal T={T} title={`Can't delete ${activeInst}`} onClose={() => setBlocked(null)} width={420}>
+          <p style={{ fontSize: 13, color: T.textSub, marginBottom: 12, lineHeight: 1.6 }}>{INSTRUMENT_IN_USE_MESSAGE}</p>
+          {blocked.teachers.length > 0 && (
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>
+              <strong style={{ color: T.text }}>Teachers ({blocked.teachers.length}):</strong> {blocked.teachers.map(t => t.name).join(", ")}
+            </div>
+          )}
+          {blocked.enrolments.length > 0 && (
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>
+              <strong style={{ color: T.text }}>Students ({blocked.enrolments.length}):</strong>{" "}
+              {blocked.enrolments.map(e => students.find(s => s.id === e.studentId)?.name ?? "?").join(", ")}
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+            <Btn T={T} variant="ghost" onClick={() => setBlocked(null)}>OK</Btn>
           </div>
         </Modal>
       )}
 
-      <Card T={T}>
+      {/* Remove confirmation modal */}
+      {confirmRemove && (
+        <Modal T={T} title={`Remove ${activeInst}?`} onClose={() => setConfirmRemove(false)} width={380}>
+          <p style={{ fontSize: 13, color: T.textSub, marginBottom: 20, lineHeight: 1.6 }}>
+            This will delete all fee data for <b style={{ color: T.text }}>{activeInst}</b> from both Classical and Contemporary schedules. This cannot be undone without clicking Save Changes first.
+          </p>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn T={T} variant="ghost"  onClick={() => setConfirmRemove(false)}>Cancel</Btn>
+            <Btn T={T} variant="danger" onClick={removeInstrument}>Confirm Delete {activeInst}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {instruments.length === 0 && (
+        <Card T={T}>
+          <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.7 }}>
+            No instruments yet. Click <strong style={{ color: T.text }}>+ Add</strong> to add the first one, fill in its fees, then Save Changes.
+            Every instrument list in the app (teachers, rooms, students) comes from this page.
+          </div>
+        </Card>
+      )}
+      {instruments.length > 0 && <Card T={T}>
         {(syllabus === "classical" || syllabus === "both") && (
           <>
-            {syllabus === "both" && <SectionTitle T={T}>Classical — {feeInst}</SectionTitle>}
+            {syllabus === "both" && <SectionTitle T={T}>Classical — {activeInst}</SectionTitle>}
             {feeTable(GRADE_LABELS, fees, setClassicalFee)}
             {syllabus === "both" && <div style={{ height: 28 }} />}
           </>
         )}
         {(syllabus === "contemporary" || syllabus === "both") && (
           <>
-            {syllabus === "both" && <SectionTitle T={T}>Contemporary — {feeInst}</SectionTitle>}
+            {syllabus === "both" && <SectionTitle T={T}>Contemporary — {activeInst}</SectionTitle>}
             {feeTable(CONTEMPORARY_GRADE_LABELS, contemporaryFees, setContemporaryFee)}
           </>
         )}
-      </Card>
+      </Card>}
 
       <p style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>
         Changes are not published until you click Save Changes. Saved data syncs to the public fees page immediately.
