@@ -44,6 +44,9 @@ export default function EnrolmentForm({
     billingTerm: "monthly", commissionPct: "", feeAmount: "", feeEffectiveFrom: curYM, termEffectiveFrom: curYM,
   });
   const [depositInput,  setDepositInput]  = useState("");
+  // Editing a registered student: the deposit amount can be changed while it is pending or held
+  const depositEditable = editing && ["pending", "held"].includes(deposit?.status);
+  const [depositAmountEdit, setDepositAmountEdit] = useState(deposit ? String(deposit.amount) : "");
   const [collectNow,    setCollectNow]    = useState(true);
   const [ack,           setAck]           = useState(false);
   const [error,         setError]         = useState(null);
@@ -93,6 +96,9 @@ export default function EnrolmentForm({
           }),
         };
         await actions.updateEnrolment(enrolment, patch);
+        if (depositEditable && Number(depositAmountEdit) !== Number(deposit.amount)) {
+          await actions.editDepositFor(enrolment.id, depositAmountEdit);
+        }
       } else {
         const form = {
           instrument: f.instrument, syllabus: f.syllabus, grade: f.grade, teacherId: f.teacherId,
@@ -229,7 +235,15 @@ export default function EnrolmentForm({
       )}
 
       {editing && deposit && (
-        <div style={{ fontSize: 12, color: T.muted }}>Deposit: <strong style={{ color: T.text }}>RM {deposit.amount}</strong> — {deposit.status}</div>
+        depositEditable ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <Inp T={T} label={`Deposit (RM) — ${deposit.status}`} type="number" min={0} value={depositAmountEdit}
+              onChange={e => { setDirty?.(true); setDepositAmountEdit(e.target.value); }} />
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>A held deposit is a liability, not income, so changing it doesn't affect fees or payroll. It is locked once applied or forfeited.</div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: T.muted }}>Deposit: <strong style={{ color: T.text }}>RM {deposit.amount}</strong> — {deposit.status} (locked)</div>
+        )
       )}
 
       {error && <div style={warnBox(T, "#FF5A65")}>{error}</div>}

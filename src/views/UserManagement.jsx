@@ -151,6 +151,9 @@ export default function UserManagement({ teachers, enrolments, students, instrum
     setSaving(false);
   }
 
+  // A Teacher-role account only counts as a teacher (pickers, Payroll) if its teacherId points at a real profile
+  const hasProfile = id => !!id && teachers.some(t => t.id === id);
+
   async function saveEdit() {
     if (editModal._type === "teacher_profile") {
       try {
@@ -164,11 +167,22 @@ export default function UserManagement({ teachers, enrolments, students, instrum
     const ref = isInvite
       ? doc(db, "invites", editModal.id)
       : doc(db, "users",   editModal.id);
+    // Anyone with the Teacher role must have a teacher profile, or they never appear in teacher pickers / payroll.
+    let teacherId = editForm.teacherId || null;
+    if (editForm.role === "teacher" && !hasProfile(teacherId)) {
+      if (!editForm.instruments?.length) { setError("Select at least one instrument for this teacher."); return; }
+      try {
+        teacherId = await actions.saveTeacher(null, {
+          name: editForm.displayName, instruments: editForm.instruments, commissionPct: editForm.commissionPct ?? 60,
+        });
+      } catch (err) { setError(err.message); return; }
+    }
     await updateDoc(ref, {
       displayName: editForm.displayName,
       role:        editForm.role,
-      teacherId:   editForm.teacherId || null,
+      teacherId,
     });
+    setError(null);
     setEditModal(null);
     setDirty?.(false);
   }
@@ -232,25 +246,51 @@ export default function UserManagement({ teachers, enrolments, students, instrum
       return (e.displayName ?? "").toLowerCase().includes(q) || (e.email ?? "").toLowerCase().includes(q);
     });
 
-  if (isMobile) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 20px", textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🖥️</div>
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 10, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Desktop Required</h2>
-        <p style={{ fontSize: 14, color: T.muted, lineHeight: 1.7, maxWidth: 280 }}>
-          User Management is only available on desktop. Please open StudioOS on a larger screen to manage accounts.
-        </p>
-      </div>
-    );
-  }
-
   const isAdminOrSys = formRole === "admin" || formRole === "sysadmin";
+  const fieldRow = { display: "flex", gap: 11, flexDirection: isMobile ? "column" : "row" };
+
+  // Shared by the desktop table and the mobile card list
+  const rowInfo = entry => {
+    const isPending = entry._type === "invite", isStudent = entry._type === "student", isTeacherProfile = entry._type === "teacher_profile";
+    let emailCell = entry.email ?? "—";
+    if (isStudent)        emailCell = entry.enrolmentSummary || "No active enrolment";
+    if (isTeacherProfile) emailCell = `${entry.instruments?.join(", ") ?? "—"} · ${entry.commissionPct}% comm`;
+    return { isPending, isStudent, isTeacherProfile, emailCell, rc: ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim } };
+  };
+  const rowAvatar = (entry, { isPending, isStudent, isTeacherProfile }) =>
+    !isPending && !isStudent && !isTeacherProfile && entry.photoURL
+      ? <img src={entry.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0 }} />
+      : <Avatar name={entry.displayName || entry.email || "?"} size={30} />;
+  const rowStatus = ({ isPending, isStudent, isTeacherProfile }) => isStudent
+    ? <Badge label="Enrolled" color="#4ade80" bg="#052e16" />
+    : isTeacherProfile ? <Badge label="Profile Only" color="#60a5fa" bg="#60a5fa18" />
+    : isPending ? <Badge label="Pending Sign-in" color="#94a3b8" bg="#1e293b" />
+    : <Badge label="Active" color="#4ade80" bg="#052e16" />;
+  const rowNoProfile = entry => entry.role === "teacher" && entry._type !== "teacher_profile" && !hasProfile(entry.teacherId);
+  const rowActions = (entry, { isPending, isStudent, isTeacherProfile }) => (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {isStudent
+        ? <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => goTo?.("students")}>Manage in Students</Btn>
+        : <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }}
+            onClick={() => { setEditModal(entry); setEditForm({ ...entry }); }}>Edit</Btn>}
+      {!isStudent && !isTeacherProfile && (isPending || entry.id !== currentUser.uid) && (
+        <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11, color: "#4ade80", borderColor: "#4ade8030" }}
+          onClick={() => startTransfer(entry)}>Transfer</Btn>
+      )}
+      {(isTeacherProfile || isPending || (!isStudent && entry.id !== currentUser.uid)) && (
+        <Btn T={T} variant="danger" style={{ padding: "4px 9px", fontSize: 11 }}
+          onClick={() => setDeleteModal(entry)}>Delete</Btn>
+      )}
+    </div>
+  );
 
   return (
     <div>
-      <h2 style={{ fontSize: 24, fontWeight: 700, color: T.text, marginBottom: 18, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>User Management</h2>
+      <h2 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: T.text, marginBottom: 18, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>User Management</h2>
 
-      <div style={{ display: "flex", gap: 12, marginBottom: 22, flexWrap: "wrap" }}>
+      <div style={isMobile
+        ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 18 }
+        : { display: "flex", gap: 12, marginBottom: 22, flexWrap: "wrap" }}>
         <Stat T={T} label="Active Users"    value={users.length} />
         <Stat T={T} label="Students"        value={students.length} color="#4ade80" />
         <Stat T={T} label="Teachers"        value={counts.teacher  ?? 0} color="#60a5fa" />
@@ -289,7 +329,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
           {/* ── Admin / Sysadmin ─────────────────────────────────────────────── */}
           {isAdminOrSys && (
             <>
-              <div style={{ display: "flex", gap: 11 }}>
+              <div style={fieldRow}>
                 <Inp T={T} label="Full Name" value={form.displayName}
                   onChange={e => { markDirty(); setForm(f => ({ ...f, displayName: e.target.value })); }} />
                 <div style={{ flex: 1 }}>
@@ -310,7 +350,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
           {/* ── Teacher ──────────────────────────────────────────────────────── */}
           {formRole === "teacher" && (
             <>
-              <div style={{ display: "flex", gap: 11 }}>
+              <div style={fieldRow}>
                 <Inp T={T} label="Full Name" value={form.displayName}
                   onChange={e => { markDirty(); setForm(f => ({ ...f, displayName: e.target.value })); }} />
                 <div style={{ flex: 1 }}>
@@ -370,6 +410,13 @@ export default function UserManagement({ teachers, enrolments, students, instrum
         </div>
       </Card>
 
+      {allRows.some(rowNoProfile) && (
+        <div style={{ fontSize: 12, color: "#FDB52A", background: "#FDB52A14", border: "0.6px solid #FDB52A55", borderRadius: 6, padding: "8px 11px", lineHeight: 1.6, marginBottom: 12 }}>
+          {allRows.filter(rowNoProfile).length} teacher account(s) have no teacher profile, so they don't appear in Payroll or when registering students.
+          Click <strong>Edit</strong> on them, pick their instruments and save to create the profile.
+        </div>
+      )}
+
       {/* ── Filter bar ──────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap", flex: 1 }}>
@@ -395,28 +442,48 @@ export default function UserManagement({ teachers, enrolments, students, instrum
             );
           })}
         </div>
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", width: isMobile ? "100%" : "auto" }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, pointerEvents: "none", color: T.muted }}>🔍</span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email…"
-            style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "7px 12px 7px 32px", fontSize: 12, outline: "none", fontFamily: "inherit", width: 200 }} />
+            style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "7px 12px 7px 32px", fontSize: isMobile ? 16 : 12, outline: "none", fontFamily: "inherit", width: isMobile ? "100%" : 200, boxSizing: "border-box" }} />
         </div>
       </div>
 
-      {/* ── Users + Invites table ────────────────────────────────────────────── */}
+      {/* ── Users + Invites: table on desktop, cards on mobile ───────────────── */}
+      {isMobile ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {displayedRows.map(entry => {
+            const info = rowInfo(entry);
+            const isTransferSource = transferTarget?.id === entry.id;
+            return (
+              <Card key={`${entry._type}-${entry.id}`} T={T}
+                style={{ padding: 12, border: `0.6px solid ${isTransferSource ? "#4ade8060" : T.border2}`, borderRadius: 10, background: isTransferSource ? "#4ade8010" : undefined }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  {rowAvatar(entry, info)}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, color: T.text, fontWeight: 600, overflowWrap: "anywhere" }}>{entry.displayName}</div>
+                    <div style={{ fontSize: 11, color: T.muted, overflowWrap: "anywhere" }}>{info.emailCell}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                  <Badge label={entry.role} color={info.rc.color} bg={info.rc.bg} />
+                  {rowStatus(info)}
+                  {rowNoProfile(entry) && <Badge label="No teacher profile" color="#FF5A65" bg="rgba(255,90,101,0.15)" />}
+                </div>
+                {rowActions(entry, info)}
+              </Card>
+            );
+          })}
+          {allRows.length === 0 && <div style={{ padding: "20px 14px", textAlign: "center", color: T.muted, fontSize: 13 }}>No users yet.</div>}
+        </div>
+      ) : (
       <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={["User", "Email / Details", "Role", "Status", "Actions"]} />
           <tbody>
             {displayedRows.map((entry) => {
-              const rc              = ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim };
-              const isPending       = entry._type === "invite";
-              const isStudent       = entry._type === "student";
-              const isTeacherProfile = entry._type === "teacher_profile";
+              const info = rowInfo(entry);
               const isTransferSource = transferTarget?.id === entry.id;
-
-              let emailCell = entry.email ?? "—";
-              if (isStudent)        emailCell = entry.enrolmentSummary || "No active enrolment";
-              if (isTeacherProfile) emailCell = `${entry.instruments?.join(", ") ?? "—"} · ${entry.commissionPct}% comm`;
 
               return (
                 <tr key={`${entry._type}-${entry.id}`}
@@ -428,43 +495,16 @@ export default function UserManagement({ teachers, enrolments, students, instrum
                   }}>
                   <td style={{ padding: "11px 14px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                      {!isPending && !isStudent && !isTeacherProfile && entry.photoURL
-                        ? <img src={entry.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", flexShrink: 0 }} />
-                        : <Avatar name={entry.displayName || entry.email || "?"} size={30} />
-                      }
+                      {rowAvatar(entry, info)}
                       <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{entry.displayName}</span>
                     </div>
                   </td>
-                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{emailCell}</td>
+                  <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{info.emailCell}</td>
                   <td style={{ padding: "11px 14px" }}>
-                    <Badge label={entry.role} color={rc.color} bg={rc.bg} />
+                    <Badge label={entry.role} color={info.rc.color} bg={info.rc.bg} />
                   </td>
-                  <td style={{ padding: "11px 14px" }}>
-                    {isStudent
-                      ? <Badge label="Enrolled"       color="#4ade80" bg="#052e16" />
-                      : isTeacherProfile
-                        ? <Badge label="Profile Only"   color="#60a5fa" bg="#60a5fa18" />
-                        : isPending
-                          ? <Badge label="Pending Sign-in" color="#94a3b8" bg="#1e293b" />
-                          : <Badge label="Active"       color="#4ade80" bg="#052e16" />
-                    }
-                  </td>
-                  <td style={{ padding: "11px 14px" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {isStudent
-                        ? <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => goTo?.("students")}>Manage in Students</Btn>
-                        : <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }}
-                            onClick={() => { setEditModal(entry); setEditForm({ ...entry }); }}>Edit</Btn>}
-                      {!isStudent && !isTeacherProfile && (isPending || entry.id !== currentUser.uid) && (
-                        <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11, color: "#4ade80", borderColor: "#4ade8030" }}
-                          onClick={() => startTransfer(entry)}>Transfer</Btn>
-                      )}
-                      {(isTeacherProfile || isPending || (!isStudent && entry.id !== currentUser.uid)) && (
-                        <Btn T={T} variant="danger" style={{ padding: "4px 9px", fontSize: 11 }}
-                          onClick={() => setDeleteModal(entry)}>Delete</Btn>
-                      )}
-                    </div>
-                  </td>
+                  <td style={{ padding: "11px 14px" }}>{rowStatus(info)}{rowNoProfile(entry) && <div style={{ marginTop: 4 }}><Badge label="No teacher profile" color="#FF5A65" bg="rgba(255,90,101,0.15)" /></div>}</td>
+                  <td style={{ padding: "11px 14px" }}>{rowActions(entry, info)}</td>
                 </tr>
               );
             })}
@@ -474,6 +514,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
           </tbody>
         </table>
       </Card>
+      )}
 
       {/* ── Transfer confirm modal ───────────────────────────────────────────── */}
       {transferConfirm && (
@@ -542,7 +583,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
         </Modal>
       )}
 
-      {editModal && editModal._type !== "student" && (
+      {editModal && editModal._type !== "student" && editModal._type !== "teacher_profile" && (
         <Modal T={T} title={editModal._type === "invite" ? "Edit Invite" : "Edit User"} onClose={() => { setEditModal(null); setDirty?.(false); }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Inp T={T} label="Display Name" value={editForm.displayName ?? ""}
@@ -557,6 +598,28 @@ export default function UserManagement({ teachers, enrolments, students, instrum
               <option value="admin">Admin</option>
               <option value="sysadmin">Sysadmin</option>
             </Sel>
+            {editForm.role === "teacher" && !hasProfile(editForm.teacherId) && (
+              <>
+                <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Instruments (creates their teacher profile)</div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                  {instruments.map(inst => {
+                    const active = editForm.instruments?.includes(inst);
+                    return (
+                      <button key={inst} onClick={() => {
+                        setDirty?.(true);
+                        setEditForm(f => ({ ...f, instruments: f.instruments?.includes(inst) ? f.instruments.filter(i => i !== inst) : [...(f.instruments ?? []), inst] }));
+                      }} style={{
+                        padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+                        background: active ? T.accent + "22" : T.dim, color: active ? T.accent : T.muted, outline: active ? `1px solid ${T.accent}55` : "none",
+                      }}>{inst}</button>
+                    );
+                  })}
+                </div>
+                <Inp T={T} label="Default Commission % (0–100)" type="number" min={0} max={100} value={editForm.commissionPct ?? 60}
+                  onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, commissionPct: e.target.value })); }} />
+              </>
+            )}
+            {error && <div style={{ fontSize: 12, color: "#f87171" }}>{error}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
               <Btn T={T} onClick={saveEdit}>Save Changes</Btn>

@@ -349,7 +349,7 @@ export default function App() {
   if (isMobile) {
     const mobileNavItems = nav.length <= MOBILE_PRIMARY ? nav : nav.slice(0, MOBILE_PRIMARY);
     const moreNavItems   = nav.length > MOBILE_PRIMARY  ? nav.slice(MOBILE_PRIMARY) : [];
-    const showMoreBtn    = moreNavItems.length > 0;
+    const showMoreBtn    = true; // always: the drawer holds Sign Out, which every role needs
 
     return (
       <div style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Plus Jakarta Sans', 'Segoe UI', sans-serif" }}>
@@ -457,7 +457,7 @@ export default function App() {
                   </button>
                 );
               })}
-              <div style={{ padding: "10px 20px 6px", borderTop: `1px solid ${T.border}`, marginTop: 4 }}>
+              <div style={{ padding: "10px 20px 6px", borderTop: moreNavItems.length ? `1px solid ${T.border}` : "none", marginTop: moreNavItems.length ? 4 : 0 }}>
                 <button onClick={signOut} style={{
                   display: "flex", alignItems: "center", gap: 10, background: "none",
                   border: "none", cursor: "pointer", fontFamily: "inherit", color: T.muted, fontSize: 13

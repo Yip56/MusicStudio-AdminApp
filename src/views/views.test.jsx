@@ -145,9 +145,13 @@ describe("views render with realistic data", () => {
   });
 
   it("mobile layouts render", () => {
-    for (const C of [Dashboard, Students, CalendarView, Payroll, RoomsView]) {
+    for (const C of [Dashboard, Students, CalendarView, Payroll, RoomsView, UserManagement]) {
       expect(() => html(C, { isMobile: true })).not.toThrow();
     }
+    // User Management is usable on a phone now, not a "Desktop Required" notice
+    const um = html(UserManagement, { isMobile: true });
+    expect(um).toContain("Create Account");
+    expect(um).not.toContain("Desktop Required");
   });
 
   it("finalized month is shown as locked and read from the snapshot", () => {
@@ -196,6 +200,16 @@ describe("EnrolmentForm", () => {
     );
     expect(out).toContain("Save Changes");
     expect(out).not.toContain("I understand");
+    expect(out).toContain("Deposit (RM) — held"); // editable while held
+  });
+
+  it("edit: a deposit that was applied is shown locked, not editable", () => {
+    const out = renderToStaticMarkup(
+      <EnrolmentForm T={T} mode="edit" enrolment={enrolments[0]} students={students} enrolments={enrolments} teachers={teachers} rooms={rooms}
+        instruments={["Piano", "Drum"]} tables={tables} actions={actions} deposit={{ ...deposits[0], status: "applied" }} />,
+    );
+    expect(out).toContain("(locked)");
+    expect(out).not.toContain("Deposit (RM) —");
   });
 
   it("with no instruments set up it says so and blocks saving", () => {

@@ -223,7 +223,7 @@ export default function Students({
     const dep = depositOf(e.id);
     if (!dep) return <Badge label="No deposit record" color="#AEB9E1" bg="#37446B33" />;
     const m = DEP_META[dep.status];
-    return <Badge label={m.label} color={m.color} bg={m.color + "22"} />;
+    return <Badge label={`${m.label} · RM ${dep.amount}`} color={m.color} bg={m.color + "22"} />;
   };
   const statusBadge = e => e.status === "stopped"
     ? <Badge label={`Stopped · last ${ymOfDate(e.endDate)}`} color="#FF5A65" bg="rgba(255,90,101,0.15)" />

@@ -209,7 +209,7 @@ Held deposits = **liability** (`summariseDeposits().liability`, shown on Dashboa
 1. Bootstrap the first sysadmin (below).
 2. **Grades & Fees** → `+ Add` each instrument, fill fees (or import the Excel template), **Save Changes**.
 3. **Rooms** → add rooms and tick every instrument each room can host.
-4. **Payroll → + Add Teacher** (name, instruments, default commission %), then **User Mgmt → Teacher** to invite their Gmail linked to that profile (creating a teacher in User Mgmt makes both).
+4. **User Mgmt → Teacher**: name, Gmail, instruments, default commission %. This creates the invite **and** the teacher profile; everyone with the Teacher role is a teacher in every picker and in Payroll. (Payroll has no Add Teacher button; it only edits/removes.)
 5. **Students → + Register Student**: name, instrument, grade, teacher, weekly slot, term, optional fee/commission override, and the **deposit** (default = first month's fee; tick "received now" once paid). Add a second instrument with **+ Instrument** on the student's row.
 
 ### Add a user account (teacher / admin / sysadmin)

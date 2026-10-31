@@ -159,11 +159,11 @@ export default function Payroll({
   }
 
   // ── teacher add / edit ─────────────────────────────────────────────────────
-  function openAddTeacher()  { setError(null); setForm({ name: "", instruments: [], commissionPct: 60 }); setTeacherModal("add"); }
+  // Teachers are created on User Management (role = Teacher); Payroll only edits/removes them.
   function openEditTeacher(t) { setError(null); setForm({ name: t.name, instruments: [...(t.instruments ?? [])], commissionPct: t.commissionPct }); setTeacherModal(t); }
   function saveTeacher() {
     return run(async () => {
-      await actions.saveTeacher(teacherModal === "add" ? null : teacherModal.id, form);
+      await actions.saveTeacher(teacherModal.id, form);
       setTeacherModal(null); setDirty?.(false);
     });
   }
@@ -312,7 +312,7 @@ export default function Payroll({
 
   // ── modals ─────────────────────────────────────────────────────────────────
   const teacherForm = teacherModal && isElevated && (
-    <Modal T={T} title={teacherModal === "add" ? "Add Teacher" : "Edit Teacher"} onClose={() => { setTeacherModal(null); setDirty?.(false); }}>
+    <Modal T={T} title="Edit Teacher" onClose={() => { setTeacherModal(null); setDirty?.(false); }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Inp T={T} label="Full Name" value={form.name} onChange={e => { setDirty?.(true); setForm(f => ({ ...f, name: e.target.value })); }} />
         <div>
@@ -336,7 +336,7 @@ export default function Payroll({
         {error && <div style={errBox}>{error}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
           <Btn T={T} variant="ghost" onClick={() => { setTeacherModal(null); setDirty?.(false); }}>Cancel</Btn>
-          <Btn T={T} disabled={busy} onClick={saveTeacher}>{teacherModal === "add" ? "Add" : "Save Changes"}</Btn>
+          <Btn T={T} disabled={busy} onClick={saveTeacher}>Save Changes</Btn>
         </div>
       </div>
     </Modal>
@@ -448,7 +448,6 @@ export default function Payroll({
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       {monthNav}
       {isElevated && !finalized && <Btn T={T} onClick={() => { setError(null); setFinalizeAck(false); setFinalizeOpen(true); }} style={{ marginLeft: 6 }}>Finalize Month</Btn>}
-      {isElevated && !isMobile && <Btn T={T} onClick={openAddTeacher} style={{ background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>+ Add Teacher</Btn>}
     </div>
   );
 
@@ -519,6 +518,7 @@ export default function Payroll({
           {headerRight}
         </div>
         {errorBar}{finalizedBanner}{affectedBanner}{deferralCard}
+        {shown.length === 0 && !isTeacher && <div style={{ ...errBox, marginBottom: 12, color: T.muted }}>No teachers yet. Payroll lists every teacher profile; add one on User Mgmt (role Teacher). If a Teacher account already exists there with a red "No teacher profile" badge, click Edit on it and save to create the profile.</div>}
         {shown.map(row => (
           <Card key={row.teacher.id} T={T} style={{ marginBottom: 12, padding: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -552,7 +552,6 @@ export default function Payroll({
             ))}
           </Card>
         ))}
-        {isElevated && <Btn T={T} onClick={openAddTeacher} style={{ width: "100%", marginTop: 4 }}>+ Add Teacher</Btn>}
         {teacherForm}{discountModal}{finalizeModal}
       </div>
     );
@@ -578,6 +577,7 @@ export default function Payroll({
         </div>
       )}
 
+      {shown.length === 0 && !isTeacher && <div style={{ ...errBox, marginBottom: 12, color: T.muted }}>No teachers yet. Payroll lists every teacher profile; add one on User Mgmt (role Teacher). If a Teacher account already exists there with a red "No teacher profile" badge, click Edit on it and save to create the profile.</div>}
       {shown.map(row => (
         <Card key={row.teacher.id} T={T} style={{ marginBottom: 14, padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
           {teacherHeader(row)}
