@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   getSessionsForDate, getMergedSessionsForDate, findScheduleConflicts, validateEnrolment,
   newEnrolmentDoc, stopEnrolmentPatch, needsCollectedFeeWarning, getScheduledCountForMonth,
+  defaultMakeupSlot, findMakeupConflicts,
 } from "./enrolments.js";
 
 const sched = (dayOfWeek, startTime, endTime, roomId, duration = "60") => ({ dayOfWeek, startTime, endTime, roomId, duration });
@@ -143,5 +144,21 @@ describe("lifecycle", () => {
     expect(needsCollectedFeeWarning(piano, next, false)).toBe(false);
     expect(needsCollectedFeeWarning(piano, { ...piano, teacherId: "t2" }, true)).toBe(false);
     expect(needsCollectedFeeWarning(piano, { ...piano, schedule: { ...piano.schedule, duration: "45" } }, true)).toBe(true);
+  });
+});
+
+describe("make-up slots", () => {
+  it("defaults to the slot right after the original class, same length", () => {
+    expect(defaultMakeupSlot("12:30", "13:00")).toEqual({ startTime: "13:00", endTime: "13:30" });
+    expect(defaultMakeupSlot("09:00", "09:45")).toEqual({ startTime: "09:45", endTime: "10:30" });
+    expect(defaultMakeupSlot("14:00", "15:00")).toEqual({ startTime: "15:00", endTime: "16:00" });
+  });
+
+  it("blocks student, teacher and room overlaps but allows back-to-back", () => {
+    const on = [{ studentId: "s9", teacherId: "t9", roomId: "r1", startTime: "13:00", endTime: "13:30" }];
+    const cand = { studentId: "s1", teacherId: "t1", roomId: "r1", startTime: "13:00", endTime: "13:30" };
+    expect(findMakeupConflicts(cand, on).map(c => c.kind)).toEqual(["room"]);
+    expect(findMakeupConflicts({ ...cand, startTime: "13:30", endTime: "14:00" }, on)).toEqual([]);
+    expect(findMakeupConflicts({ ...cand, studentId: "s9", roomId: "r2" }, on).map(c => c.kind)).toEqual(["student"]);
   });
 });

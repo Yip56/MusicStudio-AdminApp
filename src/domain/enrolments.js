@@ -106,11 +106,45 @@ export function findScheduleConflicts(candidate, existing, { ignoreId = null, as
   return out;
 }
 
-export function describeConflict(c, { students = [], teachers = [], rooms = [] } = {}) {
-  const who  = students.find(s => s.id === c.with.studentId)?.name ?? "another student";
+/**
+ * Default slot for a make-up class: starts when the original class ends and keeps its length
+ * (12:30–13:00 → 13:00–13:30, 09:00–09:45 → 09:45–10:30).
+ */
+export function defaultMakeupSlot(startTime, endTime) {
+  return { startTime: endTime, endTime: addMinutes(endTime, toMinutes(endTime) - toMinutes(startTime)) };
+}
+
+/**
+ * Check a make-up slot against everything already on that date (`sessionsOnDate`: recurring, one-off and
+ * make-up sessions). Same student, teacher or room at an overlapping time is a hard block.
+ * Returns [{ kind: "student"|"teacher"|"room", with: session }].
+ */
+export function findMakeupConflicts({ studentId, teacherId, roomId, startTime, endTime }, sessionsOnDate) {
+  const out = [];
+  for (const s of sessionsOnDate) {
+    if (!timesOverlap(startTime, endTime, s.startTime, s.endTime)) continue;
+    if (studentId && s.studentId === studentId) out.push({ kind: "student", with: s });
+    if (teacherId && s.teacherId === teacherId) out.push({ kind: "teacher", with: s });
+    if (roomId && s.roomId === roomId)           out.push({ kind: "room",    with: s });
+  }
+  return out;
+}
+
+/**
+ * Human-readable conflict. `anonymous` (used for teachers) never names other students or teachers:
+ * it only says the room/time is occupied.
+ */
+export function describeConflict(c, { students = [], teachers = [], rooms = [], anonymous = false } = {}) {
   const slot = `${c.with.schedule.startTime}–${c.with.schedule.endTime}`;
+  const roomName = rooms.find(r => r.id === c.with.schedule.roomId)?.name ?? "The room";
+  if (anonymous) {
+    if (c.kind === "room")    return `${roomName} is occupied at ${slot}.`;
+    if (c.kind === "teacher") return `You already have a class at ${slot}.`;
+    return `This student already has a class at ${slot} on this day.`;
+  }
+  const who  = students.find(s => s.id === c.with.studentId)?.name ?? "another student";
   if (c.kind === "student") return `${who} already has a ${c.with.instrument ?? "class"} lesson at ${slot} on this day.`;
-  if (c.kind === "room")    return `${rooms.find(r => r.id === c.with.schedule.roomId)?.name ?? "The room"} is already booked at ${slot} (${who}).`;
+  if (c.kind === "room")    return `${roomName} is already booked at ${slot} (${who}).`;
   return `${teachers.find(t => t.id === c.with.teacherId)?.name ?? "The teacher"} is already teaching at ${slot} (${who}).`;
 }
 

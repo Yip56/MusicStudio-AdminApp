@@ -1,10 +1,11 @@
 import { useState, useMemo } from "react";
-import { Card, Btn, Badge, Modal, Inp, Sel, SectionTitle } from "../components/UI.jsx";
+import { Card, Btn, Badge, Modal, Inp, Sel, SectionTitle, ShakeBox } from "../components/UI.jsx";
+import { useShakeError } from "../hooks/useShakeError.js";
 import { TODAY, ROOM_COLORS, STATUS_META } from "../data/seed.js";
 import { getMergedSessionsForDate } from "../domain/enrolments.js";
 
 export default function RoomsView({ rooms, enrolments, students, teachers, attendance, instruments, actions, T, isMobile, setDirty }) {
-  const [pageError, setPageError] = useState(null);
+  const [pageError, setPageError, pageShake] = useShakeError();
   const [selRoom,  setSelRoom]  = useState(null);
   const [modal,    setModal]    = useState(null);
   const [form,     setForm]     = useState({});
@@ -138,7 +139,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
           </div>
           <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>A class can only be placed in a room whose types include its instrument.</div>
         </div>
-        {pageError && <div style={{ fontSize: 12, color: "#FF5A65" }}>{pageError}</div>}
+        {pageError && <ShakeBox shake={pageShake} style={{ fontSize: 12, color: "#FF5A65" }}>{pageError}</ShakeBox>}
         <div>
           <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.06em" }}>Color</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -166,7 +167,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
           <Btn T={T} onClick={openAdd} style={{ padding: "7px 14px", fontSize: 12 }}>+ Add</Btn>
         </div>
 
-        {pageError && !modal && <div style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</div>}
+        {pageError && !modal && <ShakeBox shake={pageShake} style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</ShakeBox>}
         {/* Filter tabs */}
         <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           {["all","free","occupied"].map(f => (
@@ -247,7 +248,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
         </div>
       </div>
 
-      {pageError && !modal && <div style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</div>}
+      {pageError && !modal && <ShakeBox shake={pageShake} style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</ShakeBox>}
       <div style={{ display: "grid", gridTemplateColumns: selRoom ? "1fr 1.6fr" : "1fr", gap: 14 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10, alignContent: "start" }}>
           {filteredRooms.map(r => {

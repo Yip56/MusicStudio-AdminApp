@@ -89,7 +89,8 @@ describe("views render with realistic data", () => {
     expect(out).toContain("Noah Lee");
     expect(out).not.toContain("Deposit held");
     expect(out).not.toContain("Registration incomplete");
-    expect(out).toContain("Update Grade");
+    expect(out).toContain("Click to edit");
+    expect(out).not.toContain("Update Grade"); // moved into the details panel
   });
 
   it("Calendar: the two-instrument student appears twice on the same day, each at its own time and room", () => {

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase.js";
-import { Card, Btn, Badge, Modal, Inp, Sel, Stat } from "../components/UI.jsx";
+import { Card, Btn, Badge, Modal, Inp, Sel, Stat, ShakeBox } from "../components/UI.jsx";
+import { useShakeError } from "../hooks/useShakeError.js";
 import { reviseRow, totalsForRows, diffSnapshotRows, affectedMonths, deferralChanges } from "../domain/months.js";
 import { addMonths, formatYM, formatYMLong } from "../domain/time.js";
 import { downloadBackup } from "../data/backup.js";
@@ -37,7 +38,7 @@ export default function ArchiveView({
   const [reviseYM, setReviseYM] = useState(null);
   const [draft, setDraft]       = useState([]);
   const [reason, setReason]     = useState("");
-  const [error, setError]       = useState(null);
+  const [error, setError, errShake] = useShakeError();
   const [busy, setBusy]         = useState(false);
   const [backupMsg, setBackupMsg] = useState(null);
   const [deferAck, setDeferAck] = useState(null);   // signature of the deferral changes the user confirmed
@@ -251,7 +252,7 @@ export default function ArchiveView({
           <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="What was wrong and why it is being corrected…"
             style={{ background: T.input, border: `1px solid ${T.border2}`, borderRadius: 8, color: T.text, padding: "9px 11px", fontSize: 13, outline: "none", fontFamily: "inherit", resize: "vertical", minHeight: 64 }} />
         </label>
-        {error && <div style={errBox}>{error}</div>}
+        {error && <ShakeBox shake={errShake} style={errBox}>{error}</ShakeBox>}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: T.muted }}>{changes.length} field change(s)</span>
           <div style={{ display: "flex", gap: 9 }}>
@@ -285,8 +286,14 @@ export default function ArchiveView({
             </div>
             <div style={{ fontSize: 12, color: T.textSub, lineHeight: 1.7 }}>
               {isClash
-                ? <><strong style={{ color: T.text }}>{from?.name ?? "A teacher"}</strong> asked for <strong style={{ color: T.text }}>{room?.name ?? "a room"}</strong> on {n.requestedDate} {n.requestedStartTime}–{n.requestedEndTime} (clashing with {st?.name ?? "a student"}).</>
-                : <><strong style={{ color: T.text }}>{from?.name ?? "A teacher"}</strong> asked to change <strong style={{ color: T.text }}>{st?.name ?? "a student"}</strong>{en?.instrument ? ` (${en.instrument})` : ""} to <strong style={{ color: T.text }}>{n.requestedGrade}</strong>. Reason: {n.reason}</>}
+                ? (() => {
+                    const isT = currentUser.role === "teacher", sentByMe = isT && n.fromTeacherId === currentUser.teacherId;
+                    const asker = isT ? (sentByMe ? "You" : "Another teacher") : (from?.name ?? "A teacher");
+                    // A teacher who sent the request must not learn whose student held the room
+                    const clash = sentByMe ? "the room was occupied" : `clashing with ${st?.name ?? "a student"}`;
+                    return <><strong style={{ color: T.text }}>{asker}</strong> asked for <strong style={{ color: T.text }}>{room?.name ?? "a room"}</strong> on {n.requestedDate} {n.requestedStartTime}–{n.requestedEndTime} ({clash}).</>;
+                  })()
+                : <><strong style={{ color: T.text }}>{from?.name ?? "A teacher"}</strong> asked to change <strong style={{ color: T.text }}>{st?.name ?? "a student"}</strong>{en?.instrument ? ` (${en.instrument})` : ""} to <strong style={{ color: T.text }}>{n.requestedGrade}</strong>. Reason: {n.reason}{n.resolutionNote && <> · <strong style={{ color: T.text }}>Admin note:</strong> {n.resolutionNote}</>}</>}
             </div>
           </Card>
         );

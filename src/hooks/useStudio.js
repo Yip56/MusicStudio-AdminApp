@@ -62,8 +62,12 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     if (errors.length) throw new Error(errors.join(" "));
     const conflicts = findScheduleConflicts(candidate, enrolments.items, { ignoreId, asOf: TODAY });
     if (conflicts.length) {
-      const ctx = { students: students.items, teachers: teachers.items, rooms: rooms.items };
-      throw new Error(conflicts.map(c => describeConflict(c, ctx)).join(" "));
+      const ctx = { students: students.items, teachers: teachers.items, rooms: rooms.items, anonymous: actor?.role === "teacher" };
+      // Teachers get one plain message per clashing class (room first), never who else is involved
+      const shown = ctx.anonymous
+        ? conflicts.filter(c => c.kind === "room" || !conflicts.some(o => o.kind === "room" && o.with === c.with))
+        : conflicts;
+      throw new Error(shown.map(c => describeConflict(c, ctx)).join(" "));
     }
   }
 

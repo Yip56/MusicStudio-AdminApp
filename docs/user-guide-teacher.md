@@ -25,7 +25,7 @@ To log out, click **Sign Out** at the bottom of the left menu (on a phone: tap *
 ## 2. Viewing my schedule
 
 1. Click **Calendar** in the menu.
-2. Pick a date on the month grid. The small number on a date is how many classes are booked that day.
+2. Pick a date on the month grid. The small number on a date is how many of your own classes are on that day.
    ![The calendar with a day selected](TODO)
 3. The day is shown as one column per room. Each class card shows the time, the student's name, the instrument and the teacher.
 4. Cards that say **Occupied** belong to another teacher. You cannot open them.
@@ -53,9 +53,19 @@ Mark each instrument separately for a student who has two classes on the same da
 This is available for students on a normal (full-fee) plan.
 
 1. Open the class card and click **Defer Class**.
-2. Enter the make-up date, and optionally a start and end time.
-3. Click **Schedule Makeup**.
-4. The make-up class shows on that date with a purple "Makeup" label. To cancel it, open it and click **Remove Deferral** (or **× Remove makeup**).
+2. Enter the make-up date. The time starts as the slot straight after the original class, with the same length (a 12:30–13:00 class becomes 13:00–13:30). You can change the start and end time in 5-minute steps.
+3. If that time is already taken (the same room, teacher or student has another class then), you will see "That time is occupied" and cannot continue. Pick another time or date.
+4. Click **Schedule Makeup**.
+5. The make-up class shows on that date with a purple "Makeup" label. To cancel it, open it and click **Remove Deferral** (or **× Remove makeup**).
+
+### Changing a student's regular class time
+
+1. Click **Students** and open the student's row (the right instrument).
+2. Click **Change Time**.
+3. Choose the new day and start time (5-minute steps). The end time is worked out for you, because the class length (30, 45 or 60 minutes) can't be changed. Only an administrator can change that.
+4. Click **Save**. If the room, you, or the student already have a class then, you will see why and the change is not saved.
+
+This moves the student's regular weekly class. For a one-off change, use a make-up class or book an extra class instead.
 
 ### Booking an extra, one-off class
 
@@ -67,6 +77,8 @@ This is available for students on a normal (full-fee) plan.
    - "This teacher is already teaching at that time."
    - "This room is not set up for [instrument]."
 5. If the room is already taken by another teacher's student, you are offered **Send Clash Request**. Your booking waits as "Pending" until that teacher approves it.
+
+To cancel a one-off class, open its card and click **Cancel Booking**, then **Yes, Cancel Booking**. This only works for extra booked classes, not your regular weekly classes.
 
 ---
 
@@ -88,10 +100,13 @@ Teachers **ask** for a grade change; the administrator approves it. You cannot c
 
 1. Click **Students**.
 2. Find the right student **and the right instrument** (a student with two instruments has a row for each).
-3. Click **Update Grade** (on the row, or in the student's details panel).
+3. Click the student's row (or the **Click to edit** button at the end of it) to open the details panel, then click **Update Grade**. (Click the row again to close the panel.)
    ![The Update Grade window](TODO)
-4. Choose the new grade, write a short reason, and click **Send Request**.
+4. The next grade up is already selected. You can pick a different grade, but not the student's current one. Write a short reason, and click **Send Request**.
 5. The administrator is notified. When they approve it, the grade on the student's row changes.
+6. You get a reply in the 🔔 bell saying the request was **approved** or **rejected**. A rejection always comes with a note explaining why; an approval may have one too. Click **OK** to clear it. The reply and note are also kept in **Archive → Notification Archive**.
+
+To stop spam, you can send **3 grade requests per student per hour**. If you go over, the window tells you how many minutes to wait.
 
 Good to know:
 
@@ -130,6 +145,7 @@ Payroll, fees and commission are handled by the studio administrator. **You do n
 | My booking says the student or teacher is already busy | Pick a different time. A student and a teacher can't be in two classes at once. |
 | My booking says the room isn't set up for the instrument | Choose a room that is set up for that instrument (the room's types are shown to administrators on the Rooms page). |
 | The Update Grade button asks for a reason | A short reason is required before the request can be sent. |
+| It says I've sent 3 grade requests for this student | The limit is 3 per student per hour. Wait for the number of minutes shown, or ask the administrator directly. |
 | The page looks out of date | Refresh the browser. If a warning asks about unsaved changes, choose **Stay and Keep Editing** to finish first. |
 
 ---
@@ -149,7 +165,7 @@ Yes, for every class you teach. For students on an attendance-based fee, the fee
 No. Only administrators can do that.
 
 **What happens to an Update Grade after I send it?**
-It waits for the administrator. When it is approved, the grade changes. Approved and rejected requests are kept in **Archive → Notification Archive**.
+It waits for the administrator. When it is approved, the grade changes, and you get a reply in the 🔔 bell (a rejection includes the administrator's reason). Approved and rejected requests are kept in **Archive → Notification Archive**.
 
 **I rejected a clash request by mistake.**
 Ask the other teacher to send the request again.

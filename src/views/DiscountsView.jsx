@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Card, Btn, Badge, Modal, Inp, Sel, THead } from "../components/UI.jsx";
+import { Card, Btn, Badge, Modal, Inp, Sel, THead, ShakeBox } from "../components/UI.jsx";
+import { useShakeError } from "../hooks/useShakeError.js";
 import { addMonths, ymKey, formatYM, formatYMLong } from "../domain/time.js";
 import { validateDiscount } from "../domain/billing.js";
 
@@ -15,7 +16,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
   const blank = { name: "", type: "percent", value: "", startMonth: curYM, durationMonths: 1, note: "" };
   const [modal, setModal] = useState(null);   // "add" | discount
   const [form,  setForm]  = useState(blank);
-  const [error, setError] = useState(null);
+  const [error, setError, errShake] = useShakeError();
   const [busy,  setBusy]  = useState(false);
 
   const set = (k, v) => { setDirty?.(true); setForm(f => ({ ...f, [k]: v })); };
@@ -58,7 +59,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
         Create a promotion here, then apply it to a student on the <strong style={{ color: T.text }}>Payroll</strong> page using the Discount button under their fee.
         A discount lasts for the number of months you set, counted per student from the fee month you first apply it to them. It can never take a fee below RM 0, and is frozen once the fee is collected.
       </p>
-      {error && !modal && <div style={{ ...errBox, marginBottom: 14 }}>{error}</div>}
+      {error && !modal && <ShakeBox shake={errShake} style={{ ...errBox, marginBottom: 14 }}>{error}</ShakeBox>}
 
       <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <div style={{ overflowX: "auto" }}>
@@ -109,7 +110,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
             </div>
             <Inp T={T} label="Note (optional)" value={form.note ?? ""} onChange={e => set("note", e.target.value)} />
             <div style={{ fontSize: 11, color: T.muted }}>It can be applied to fees from {formatYM(form.startMonth)}; each student keeps it for {Math.max(1, Number(form.durationMonths) || 1)} month(s) from the month it is first applied to them. Editing a discount does not change fees it was already applied to.</div>
-            {error && <div style={errBox}>{error}</div>}
+            {error && <ShakeBox shake={errShake} style={errBox}>{error}</ShakeBox>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => { setModal(null); setDirty?.(false); }}>Cancel</Btn>
               <Btn T={T} disabled={busy} onClick={save}>{modal === "add" ? "Create" : "Save"}</Btn>

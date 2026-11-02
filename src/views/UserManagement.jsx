@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, setDoc, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
-import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, Stat, SectionTitle, THead, Checkbox } from "../components/UI.jsx";
+import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, Stat, SectionTitle, THead, Checkbox, ShakeBox } from "../components/UI.jsx";
+import { useShakeError } from "../hooks/useShakeError.js";
 
 const ROLE_COLOR = {
   teacher:  { color: "#60a5fa", bg: "#60a5fa18" },
@@ -24,7 +25,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
   const [form,            setForm]            = useState({ ...BLANK_AUTH });
   const [saving,          setSaving]          = useState(false);
   const [success,         setSuccess]         = useState(null);
-  const [error,           setError]           = useState(null);
+  const [error, setError, errShake] = useShakeError();
   const [editModal,       setEditModal]       = useState(null);
   const [editForm,        setEditForm]        = useState({});
   const [deleteModal,     setDeleteModal]     = useState(null);
@@ -398,7 +399,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
             Students are registered on the Students page (name, instrument, teacher, class time and deposit), not here.
           </div>
 
-          {error   && <div style={{ fontSize: 12, color: "#f87171" }}>{error}</div>}
+          {error   && <ShakeBox shake={errShake} style={{ fontSize: 12, color: "#f87171" }}>{error}</ShakeBox>}
           {success && <div style={{ fontSize: 12, color: "#4ade80", lineHeight: 1.6 }}>{success}</div>}
 
           <div style={{ display: "flex", gap: 9 }}>
@@ -574,7 +575,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
             <Inp T={T} label="Default Commission % (0–100)" type="number" min={0} max={100}
               value={editForm.commissionPct ?? 60}
               onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, commissionPct: e.target.value })); }} />
-            {error && <div style={{ fontSize: 12, color: "#f87171" }}>{error}</div>}
+            {error && <ShakeBox shake={errShake} style={{ fontSize: 12, color: "#f87171" }}>{error}</ShakeBox>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
               <Btn T={T} onClick={saveEdit}>Save Changes</Btn>
@@ -619,7 +620,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
                   onChange={e => { setDirty?.(true); setEditForm(f => ({ ...f, commissionPct: e.target.value })); }} />
               </>
             )}
-            {error && <div style={{ fontSize: 12, color: "#f87171" }}>{error}</div>}
+            {error && <ShakeBox shake={errShake} style={{ fontSize: 12, color: "#f87171" }}>{error}</ShakeBox>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
               <Btn T={T} variant="ghost" onClick={() => { setEditModal(null); setDirty?.(false); }}>Cancel</Btn>
               <Btn T={T} onClick={saveEdit}>Save Changes</Btn>

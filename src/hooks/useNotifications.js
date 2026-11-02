@@ -35,11 +35,18 @@ export function useNotifications(firestoreUser) {
     return unsub;
   }, [firestoreUser]);
 
-  async function resolveNotification(notifId, status, resolvedBy) {
+  // `note` = the admin's message to the teacher (grade requests); stored on the resolved request
+  async function resolveNotification(notifId, status, resolvedBy, note = "") {
     await updateDoc(doc(db, "notifications", notifId), {
       status, resolvedAt: serverTimestamp(), resolvedBy,
+      ...(note ? { resolutionNote: note } : {}),
     });
   }
 
-  return { notifications, pendingCount: notifications.length, resolveNotification };
+  // A reply the teacher has read: leaves the bell but is not an approved/rejected request, so it stays out of the archive
+  async function dismissNotification(notifId) {
+    await updateDoc(doc(db, "notifications", notifId), { status: "seen", resolvedAt: serverTimestamp() });
+  }
+
+  return { notifications, pendingCount: notifications.length, resolveNotification, dismissNotification };
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Inp, Sel, Btn, Checkbox, SectionTitle } from "./UI.jsx";
+import { Inp, Sel, Btn, Checkbox, SectionTitle, ShakeBox } from "./UI.jsx";
 import { DAYS_OF_WEEK, HOURS, SYLLABI, TODAY } from "../data/seed.js";
 import {
   DURATIONS, gradesFor, roomSupportsInstrument, findScheduleConflicts, describeConflict,
@@ -50,6 +50,8 @@ export default function EnrolmentForm({
   const [collectNow,    setCollectNow]    = useState(true);
   const [ack,           setAck]           = useState(false);
   const [error,         setError]         = useState(null);
+  const [errShake,      setErrShake]      = useState(0);
+  const fail = msg => { if (error) setErrShake(n => n + 1); setError(msg); };
   const [busy,          setBusy]          = useState(false);
 
   const set = (k, v) => { setDirty?.(true); setF(p => ({ ...p, [k]: v })); };
@@ -82,8 +84,8 @@ export default function EnrolmentForm({
 
   async function submit() {
     setError(null);
-    if (!editing && mode === "register" && !name.trim()) { setError("Student name is required."); return; }
-    if (gradeWarn && !ack) { setError("Tick the box to confirm you understand the fee was already collected."); return; }
+    if (!editing && mode === "register" && !name.trim()) { fail("Student name is required."); return; }
+    if (gradeWarn && !ack) { fail("Tick the box to confirm you understand the fee was already collected."); return; }
     setBusy(true);
     try {
       if (editing) {
@@ -111,7 +113,7 @@ export default function EnrolmentForm({
       setDirty?.(false);
       onDone?.();
     } catch (e) {
-      setError(e.message);
+      fail(e.message);
     }
     setBusy(false);
   }
@@ -246,7 +248,7 @@ export default function EnrolmentForm({
         )
       )}
 
-      {error && <div style={warnBox(T, "#FF5A65")}>{error}</div>}
+      {error && <ShakeBox shake={errShake} style={warnBox(T, "#FF5A65")}>{error}</ShakeBox>}
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
         <Btn T={T} variant="ghost" onClick={onCancel}>Cancel</Btn>

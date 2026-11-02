@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { useTheme } from "./hooks/useTheme.js";
 import { useAuth } from "./hooks/useAuth.js";
@@ -10,6 +10,7 @@ import { useStudio } from "./hooks/useStudio.js";
 import { getTokens } from "./utils/tokens.js";
 import { diffFields } from "./domain/audit.js";
 import { getInstruments } from "./domain/instruments.js";
+import { checkGradeRequestLimit, validateGradeResolution, buildGradeReply } from "./domain/gradeRequests.js";
 
 import Dashboard      from "./views/Dashboard.jsx";
 import Students       from "./views/Students.jsx";
@@ -24,7 +25,7 @@ import ActivityLogView from "./views/ActivityLogView.jsx";
 import UserManagement from "./views/UserManagement.jsx";
 import Login          from "./views/Login.jsx";
 import AccessDenied   from "./views/AccessDenied.jsx";
-import { Avatar, Badge, Modal, Btn, Sheet } from "./components/UI.jsx";
+import { Avatar, Badge, Modal, Btn, Sheet, ShakeBox } from "./components/UI.jsx";
 import CommandPalette from "./components/CommandPalette.jsx";
 
 const ALL_NAV = [
@@ -46,7 +47,9 @@ export default function App() {
   const { theme, toggle } = useTheme();
   const T = getTokens(theme);
   const { user, firestoreUser, role, loading, authError, signInWithGoogle, signOut } = useAuth();
-  const { notifications, pendingCount, resolveNotification } = useNotifications(firestoreUser);
+  const { notifications, pendingCount, resolveNotification, dismissNotification } = useNotifications(firestoreUser);
+  const [gradeNotes,        setGradeNotes]        = useState({});   // admin's note per pending grade request
+  const [gradeNoteErr,      setGradeNoteErr]      = useState({});   // { [notifId]: shake count } once a reject was blocked
   const isMobile = useMobile();
 
   const [view,              setView]              = useState(null);
@@ -203,6 +206,10 @@ export default function App() {
   }
 
   async function sendGradeRequest(data) {
+    // Anti-spam: max 3 requests per teacher per student per hour (checked against what is stored)
+    const prev = await getDocs(query(collection(db, "notifications"), where("fromTeacherId", "==", data.fromTeacherId), where("studentId", "==", data.studentId)));
+    const limit = checkGradeRequestLimit(prev.docs.map(d => d.data()).filter(d => d.type === "grade_request"));
+    if (!limit.ok) throw new Error(limit.message);
     await addDoc(collection(db, "notifications"), {
       ...data,
       type:       "grade_request",
@@ -215,7 +222,20 @@ export default function App() {
   }
 
   async function handleResolve(notif, status) {
-    await resolveNotification(notif.id, status, currentUser.uid);
+    const isGradeReq = notif.type === "grade_request";
+    const note = isGradeReq ? (gradeNotes[notif.id] ?? "").trim() : "";
+    if (isGradeReq) {
+      const problem = validateGradeResolution(status, note);
+      if (problem) { setGradeNoteErr(m => ({ ...m, [notif.id]: (m[notif.id] ?? 0) + 1 })); return; }
+    }
+    await resolveNotification(notif.id, status, currentUser.uid, note);
+    if (isGradeReq) {
+      // Reply to the teacher who asked: approved/rejected, with the admin's note
+      const e = enrolments.find(x => x.id === notif.enrolmentId);
+      await addDoc(collection(db, "notifications"), { ...buildGradeReply(notif, { outcome: status, note, fromGrade: e?.grade }), createdAt: serverTimestamp(), resolvedAt: null, resolvedBy: null });
+      setGradeNotes(m => { const { [notif.id]: _, ...rest } = m; return rest; });
+      setGradeNoteErr(m => { const { [notif.id]: _, ...rest } = m; return rest; });
+    }
     if (notif.type === "clash_request") {
       if (status === "approved") await actions.updateOneOff(notif.sessionId, { status: "pending" }).catch(() => {});
       else                       await actions.deleteOneOff(notif.sessionId).catch(() => {});
@@ -226,7 +246,7 @@ export default function App() {
     }
     log({
       type: "notification", action: status,
-      summary: `${status === "approved" ? "Approved" : "Rejected"} ${notif.type === "clash_request" ? "room clash request" : notif.type === "grade_request" ? "grade update" : notif.type}`,
+      summary: `${status === "approved" ? "Approved" : "Rejected"} ${notif.type === "clash_request" ? "room clash request" : notif.type === "grade_request" ? "grade update" : notif.type}${note ? ` — "${note}"` : ""}`,
       entity: { kind: "notification", id: notif.id },
     });
   }
@@ -299,19 +319,20 @@ export default function App() {
           const isClash     = n.type === "clash_request";
           const isGrade     = n.type === "grade_request";
           const isTrial     = n.type === "trial_booking";
+          const isReply     = n.type === "grade_reply";
           return (
             <div key={n.id} style={{ background: T.bg, border: `1px solid ${T.border2}`, borderRadius: 12, padding: "13px 14px" }}>
               <div style={{ marginBottom: 9 }}>
                 <Badge
-                  label={isClash ? "Room Clash Request" : isGrade ? "Update Grade" : "Free Trial Booking"}
-                  color={isClash ? "#fb923c" : isGrade ? "#60a5fa" : "#4ade80"}
-                  bg={isClash ? "#451a03" : isGrade ? "#0c1a2e" : "#052e16"}
+                  label={isClash ? "Room Clash Request" : isGrade ? "Update Grade" : isReply ? "Grade Update Reply" : "Free Trial Booking"}
+                  color={isClash ? "#fb923c" : isGrade || isReply ? "#60a5fa" : "#4ade80"}
+                  bg={isClash ? "#451a03" : isGrade || isReply ? "#0c1a2e" : "#052e16"}
                 />
               </div>
               <div style={{ fontSize: 12, color: T.text, lineHeight: 1.7, marginBottom: 11 }}>
                 {isClash && (
                   <>
-                    <strong>{fromTeacher?.name ?? "A teacher"}</strong> wants to book{" "}
+                    <strong>{currentUser?.role === "teacher" ? "Another teacher" : (fromTeacher?.name ?? "A teacher")}</strong> wants to book{" "}
                     <strong>{room?.name ?? "a room"}</strong> on {n.requestedDate}{" "}
                     {n.requestedStartTime}–{n.requestedEndTime}. This conflicts with your student{" "}
                     <strong>{student?.name ?? "a student"}</strong>.
@@ -329,6 +350,26 @@ export default function App() {
                     </div>
                   </>
                 )}
+                {isGrade && (
+                  <div style={{ marginTop: 8 }}>
+                    <textarea
+                      value={gradeNotes[n.id] ?? ""} rows={2}
+                      onChange={ev => setGradeNotes(m => ({ ...m, [n.id]: ev.target.value }))}
+                      placeholder="Note to the teacher (required if rejecting)"
+                      style={{ width: "100%", boxSizing: "border-box", background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "7px 9px", fontSize: 12, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
+                    {gradeNoteErr[n.id] > 0 && !(gradeNotes[n.id] ?? "").trim() && (
+                      <ShakeBox shake={gradeNoteErr[n.id]} style={{ fontSize: 11, color: "#FF5A65", marginTop: 4 }}>Add a note explaining why the request is rejected.</ShakeBox>
+                    )}
+                  </div>
+                )}
+                {isReply && (
+                  <>
+                    Your grade update for <strong>{student?.name ?? "a student"}</strong>
+                    {enrol?.instrument && <> ({enrol.instrument})</>}{n.fromGrade && <> — <strong>{n.fromGrade}</strong> → <strong>{n.requestedGrade}</strong></>} was{" "}
+                    <strong style={{ color: n.outcome === "approved" ? "#4ade80" : "#f87171" }}>{n.outcome}</strong>.
+                    {n.note && <div style={{ marginTop: 6, color: T.muted }}>Note from admin: {n.note}</div>}
+                  </>
+                )}
                 {isTrial && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                     <div><strong>{n.name}</strong> wants to book a free trial.</div>
@@ -343,7 +384,12 @@ export default function App() {
                 )}
               </div>
               <div style={{ display: "flex", gap: 7 }}>
-                {isTrial ? (
+                {isReply ? (
+                  <button onClick={() => dismissNotification(n.id)} style={{
+                    flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
+                    fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: T.dim, color: T.text
+                  }}>OK</button>
+                ) : isTrial ? (
                   <button onClick={() => handleResolve(n, "approved")} style={{
                     flex: 1, padding: "7px 0", borderRadius: 7, border: "none", cursor: "pointer",
                     fontFamily: "inherit", fontSize: 12, fontWeight: 700, background: "#052e16", color: "#4ade80"
@@ -406,7 +452,7 @@ export default function App() {
           display: "flex", alignItems: "center",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 28, height: 28, background: T.accent, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#0b0b0f" }}>♬</div>
+            <div style={{ width: 28, height: 28, background: T.accent, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: T.onAccent }}>♬</div>
             <span style={{ fontSize: 15, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif", letterSpacing: "-0.01em" }}>StudioOS</span>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 0, alignItems: "center" }}>

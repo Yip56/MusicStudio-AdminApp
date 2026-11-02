@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Avatar, Badge, Card, Stat, Inp, Btn, Modal, SectionTitle, Checkbox } from "../components/UI.jsx";
+import { Avatar, Badge, Card, Stat, Inp, Btn, Modal, SectionTitle, Checkbox, ShakeBox } from "../components/UI.jsx";
+import { useShakeError } from "../hooks/useShakeError.js";
 import { buildMonthRows, buildCollectionSnapshot } from "../domain/payroll.js";
 import { toSnapshotRow, totalsForRows, summariseMonth, snapshotRowToDisplay } from "../domain/months.js";
 import { calcDiscountAmount, isDiscountActiveFor, TERM_LABEL } from "../domain/billing.js";
@@ -29,7 +30,7 @@ export default function Payroll({
   const dragRef = useRef(null);
   const [deferOpen,   setDeferOpen]   = useState({});
   const [deferTarget, setDeferTarget] = useState({});
-  const [error, setError] = useState(null);
+  const [error, setError, errShake] = useShakeError();
   const [busy,  setBusy]  = useState(false);
   const [flatDraft, setFlatDraft] = useState(null);
 
@@ -371,7 +372,7 @@ export default function Payroll({
         <Inp T={T} label="Default Commission % (0–100)" type="number" min={0} max={100} value={form.commissionPct}
           onChange={e => { setDirty?.(true); setForm(f => ({ ...f, commissionPct: e.target.value })); }} />
         <div style={{ fontSize: 11, color: T.muted }}>Individual enrolments can override this rate from the Students page.</div>
-        {error && <div style={errBox}>{error}</div>}
+        {error && <ShakeBox shake={errShake} style={errBox}>{error}</ShakeBox>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
           <Btn T={T} variant="ghost" onClick={() => { setTeacherModal(null); setDirty?.(false); }}>Cancel</Btn>
           <Btn T={T} disabled={busy} onClick={saveTeacher}>Save Changes</Btn>
@@ -408,7 +409,7 @@ export default function Payroll({
             <Inp T={T} label="Note (optional)" value={discNote} onChange={e => setDiscNote(e.target.value)} placeholder="e.g. sibling referral" />
           </>
         )}
-        {error && <div style={errBox}>{error}</div>}
+        {error && <ShakeBox shake={errShake} style={errBox}>{error}</ShakeBox>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
           <Btn T={T} variant="ghost" onClick={() => setDiscountFor(null)}>Cancel</Btn>
           <Btn T={T} disabled={busy} onClick={saveDiscountChoice}>Save</Btn>
@@ -440,7 +441,7 @@ export default function Payroll({
           </div>
         )}
         <Checkbox T={T} label={`I have checked every fee — collected, uncollected and deferred — and every payout for ${monthName}.`} checked={finalizeAck} onChange={() => setFinalizeAck(a => !a)} />
-        {error && <div style={errBox}>{error}</div>}
+        {error && <ShakeBox shake={errShake} style={errBox}>{error}</ShakeBox>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
           <Btn T={T} variant="ghost" onClick={() => { setFinalizeOpen(false); setFinalizeAck(false); }}>Not yet</Btn>
           <Btn T={T} disabled={!finalizeAck || busy} onClick={doFinalize}>{busy ? "Finalizing…" : "Finalize Month"}</Btn>
@@ -545,7 +546,7 @@ export default function Payroll({
     </div>
   );
 
-  const errorBar = error && !teacherModal && !discountFor && !finalizeOpen && <div style={{ ...errBox, marginBottom: 14 }}>{error}</div>;
+  const errorBar = error && !teacherModal && !discountFor && !finalizeOpen && <ShakeBox shake={errShake} style={{ ...errBox, marginBottom: 14 }}>{error}</ShakeBox>;
 
   // ── mobile ─────────────────────────────────────────────────────────────────
   if (isMobile) {

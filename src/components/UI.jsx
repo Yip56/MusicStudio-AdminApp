@@ -225,6 +225,22 @@ export function Sheet({ title, onClose, children, T, dismissOnScrim = true }) {
   );
 }
 
+/** Message box that shakes whenever `shake` (a counter) increases. Bump it when the user retries a blocked action. */
+export function ShakeBox({ shake = 0, style, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    // Web Animations API: replays on every bump even if the box was just re-mounted
+    if (shake === 0 || !ref.current?.animate) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    ref.current.animate(
+      [{ transform: "translateX(0)" }, { transform: "translateX(-8px)" }, { transform: "translateX(7px)" },
+       { transform: "translateX(-5px)" }, { transform: "translateX(3px)" }, { transform: "translateX(0)" }],
+      { duration: 420, easing: "ease-in-out" }
+    );
+  }, [shake]);
+  return <div ref={ref} style={style}>{children}</div>;
+}
+
 // ─── Modal ────────────────────────────────────────────────────────────────────
 // Centered dialog on desktop; bottom sheet on phones. The sheet is only dismissed by its handle / ✕
 // (never by a stray tap outside) because most modals here hold unsaved form input.

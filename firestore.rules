@@ -85,7 +85,20 @@ service cloud.firestore {
     // Teachers need to read everything to render the calendar (clash detection, "Occupied" slots);
     // the app filters what a teacher sees. Only admin/sysadmin can change people, rooms and enrolments.
     match /students/{id}   { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
-    match /enrolments/{id} { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
+    // A teacher may move the day/start/end time of their OWN enrolment — nothing else (not duration, room, fee…).
+    function isOwnTeacherScheduleEdit() {
+      let me = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return me.role == "teacher" && me.teacherId != null
+        && resource.data.teacherId == me.teacherId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["schedule"])
+        && request.resource.data.schedule.diff(resource.data.schedule).affectedKeys().hasOnly(["dayOfWeek", "startTime", "endTime"])
+        && request.resource.data.schedule.duration == resource.data.schedule.duration;
+    }
+    match /enrolments/{id} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdminOrAbove();
+      allow update: if isAdminOrAbove() || (isSignedIn() && isOwnTeacherScheduleEdit());
+    }
     match /teachers/{id}   { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
     match /rooms/{id}      { allow read: if isSignedIn(); allow write: if isAdminOrAbove(); }
     match /discounts/{id}  { allow read: if isAdminOrAbove(); allow write: if isAdminOrAbove(); }
