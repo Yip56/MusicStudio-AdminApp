@@ -2,7 +2,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase.js";
 
 export const BACKUP_COLLECTIONS = [
-  "students", "enrolments", "deposits", "teachers", "rooms", "attendance", "one_off_sessions",
+  "students", "enrolments", "deposits", "teachers", "rooms", "attendance", "one_off_sessions", "calendar_overrides",
   "discounts", "settings", "fees", "payroll_months", "month_snapshots", "month_revisions",
   "class_deferrals", "notifications", "activity_log",
 ];

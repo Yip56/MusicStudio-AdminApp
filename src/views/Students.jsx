@@ -1,3 +1,4 @@
+import { useSearchIntent } from "../hooks/useSearchIntent.js";
 import { useState, useMemo, useEffect } from "react";
 import { Avatar, Badge, Card, Inp, Sel, Btn, Modal, Sheet, THead, ShakeBox } from "../components/UI.jsx";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
@@ -30,7 +31,7 @@ function EditModal({ enrolment, ...props }) {
 
 export default function Students({
   students, enrolments, deposits, teachers, rooms, instruments, tables, actions,
-  T, currentUser, sendGradeRequest, isMobile, setDirty, focusStudentId, onFocusHandled,
+  T, currentUser, sendGradeRequest, isMobile, setDirty, focusStudentId, onFocusHandled, intent,
 }) {
   const [search,      setSearch]      = useState("");
   const [showStopped, setShowStopped] = useState(false);
@@ -51,6 +52,10 @@ export default function Students({
 
   const isTeacher  = currentUser?.role === "teacher";
   const isElevated = !isTeacher;
+  // An admin who also has a teacher profile can narrow the list to their own students (still an admin otherwise)
+  const [myOnly, setMyOnly] = useState(false);
+  const canMyOnly = isElevated && !!currentUser?.teacherId;
+  const mineOnly  = isTeacher || (canMyOnly && myOnly);
   const studentOf  = id => students.find(s => s.id === id);
   const depositOf  = id => deposits.find(d => d.id === id);
 
@@ -62,7 +67,7 @@ export default function Students({
   }, [enrolments]);
 
   const rows = enrolments
-    .filter(e => isTeacher ? e.teacherId === currentUser.teacherId : true)
+    .filter(e => mineOnly ? e.teacherId === currentUser.teacherId : true)
     .filter(e => showStopped || live(e))
     .filter(e => filter === "all" ? true : filter === "pending" ? depositOf(e.id)?.status === "pending" : e.instrument === filter.slice(5))
     .filter(e => {
@@ -80,6 +85,16 @@ export default function Students({
   }, [focusStudentId]);
 
   const close = () => { setModal(null); setError(null); setNotice(null); setDirty?.(false); };
+
+  // Quick search: open the register form, or select a student so the per-student buttons are on screen
+  useSearchIntent(intent, "students", {
+    register: () => { setError(null); setModal({ kind: "register" }); },
+    selectFirst: () => {
+      const mine = isTeacher ? enrolments.filter(e => e.teacherId === currentUser.teacherId) : enrolments;
+      const e = mine.find(live) ?? mine[0];
+      if (e) setSelectedId(e.id);
+    },
+  });
   async function run(fn, after) {
     setBusy(true); setError(null);
     try { const r = await fn(); after?.(r); } catch (e) { if (error) setErrShake(n => n + 1); setError(e.message); }
@@ -90,7 +105,7 @@ export default function Students({
 
   // ── modals ────────────────────────────────────────────────────────────────
   const formModal = modal && ["register", "add", "edit"].includes(modal.kind) && isElevated && (
-    <Modal T={T} width={560} onClose={close}
+    <Modal T={T} width={560} onClose={close} spot="students.form"
       title={modal.kind === "register" ? "Register Student" : modal.kind === "add" ? `Add Instrument — ${modal.student.name}` : "Edit Enrolment"}>
       {modal.kind === "edit"
         ? <EditModal {...shared} enrolment={modal.enrolment} deposit={depositOf(modal.enrolment.id)} onDone={close} onCancel={close} />
@@ -305,15 +320,15 @@ export default function Students({
     return (
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {isElevated && <>
-          <Btn T={T} style={b} onClick={() => openEdit(e)}>Edit</Btn>
-          <Btn T={T} variant="ghost" style={b} onClick={() => openDeposit(e)}>Deposit</Btn>
-          <Btn T={T} variant="ghost" style={b} onClick={() => { setError(null); setModal({ kind: "add", student: studentOf(e.studentId) }); }}>+ Instrument</Btn>
+          <Btn T={T} data-search="students.edit" style={b} onClick={() => openEdit(e)}>Edit</Btn>
+          <Btn T={T} data-search="students.deposit" variant="ghost" style={b} onClick={() => openDeposit(e)}>Deposit</Btn>
+          <Btn T={T} data-search="students.instrument" variant="ghost" style={b} onClick={() => { setError(null); setModal({ kind: "add", student: studentOf(e.studentId) }); }}>+ Instrument</Btn>
           {e.status === "stopped" && depositOf(e.id)?.status === "held" && <Btn T={T} style={b} onClick={() => openDeposit(e)}>Apply deposit</Btn>}
-          {e.status !== "stopped" && <Btn T={T} variant="danger" style={b} onClick={() => openStop(e)}>Stop</Btn>}
-          <Btn T={T} variant="ghost" style={{ ...b, color: "#FF5A65" }} onClick={() => { setError(null); setModal({ kind: "delete", student: studentOf(e.studentId) }); }}>Delete</Btn>
+          {e.status !== "stopped" && <Btn T={T} data-search="students.stop" variant="danger" style={b} onClick={() => openStop(e)}>Stop</Btn>}
+          <Btn T={T} data-search="students.delete" variant="ghost" style={{ ...b, color: "#FF5A65" }} onClick={() => { setError(null); setModal({ kind: "delete", student: studentOf(e.studentId) }); }}>Delete</Btn>
         </>}
-        {isTeacher && <Btn T={T} style={b} onClick={() => openGrade(e)}>Update Grade</Btn>}
-        {isTeacher && e.status !== "stopped" && e.schedule && <Btn T={T} variant="ghost" style={b} onClick={() => openTime(e)}>Change Time</Btn>}
+        {isTeacher && <Btn T={T} data-search="students.grade" style={b} onClick={() => openGrade(e)}>Update Grade</Btn>}
+        {isTeacher && e.status !== "stopped" && e.schedule && <Btn T={T} data-search="students.time" variant="ghost" style={b} onClick={() => openTime(e)}>Change Time</Btn>}
       </div>
     );
   };
@@ -358,11 +373,11 @@ export default function Students({
         {!isMobile && (
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 14, pointerEvents: "none", color: T.muted }}>🔍</span>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+            <input data-search="students.search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
               style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 4, color: T.text, padding: "9px 14px 9px 36px", fontSize: 12, outline: "none", fontFamily: "inherit", height: 42 }} />
           </div>
         )}
-        {isElevated && <Btn T={T} onClick={() => { setError(null); setModal({ kind: "register" }); }} style={isMobile ? { padding: "7px 14px", fontSize: 12 } : {}}>{isMobile ? "+ Add" : "+ Register Student"}</Btn>}
+        {isElevated && <Btn T={T} data-search="students.register" onClick={() => { setError(null); setModal({ kind: "register" }); }} style={isMobile ? { padding: "7px 14px", fontSize: 12 } : {}}>{isMobile ? "+ Add" : "+ Register Student"}</Btn>}
       </div>
     </div>
   );
@@ -374,16 +389,17 @@ export default function Students({
     }}>{label}</button>
   );
   const chips = (
-    <div className="sos-chips" style={{ margin: isMobile ? "0 -16px 12px" : "0 0 12px", padding: isMobile ? "0 16px" : 0 }}>
+    <div data-search="students.filters" className="sos-chips" style={{ margin: isMobile ? "0 -16px 12px" : "0 0 12px", padding: isMobile ? "0 16px" : 0 }}>
       {chip(filter === "all", "All", () => setFilter("all"))}
       {instruments.map(i => chip(filter === "inst:" + i, i, () => setFilter(f => f === "inst:" + i ? "all" : "inst:" + i)))}
       {isElevated && chip(filter === "pending", "Deposit pending", () => setFilter(f => f === "pending" ? "all" : "pending"))}
       {chip(showStopped, "Show stopped", () => setShowStopped(v => !v))}
+      {canMyOnly && chip(myOnly, "My students only", () => setMyOnly(v => !v))}
     </div>
   );
   const toolbar = (
     <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-      {isMobile && <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
+      {isMobile && <input data-search="students.search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
         style={{ flex: 1, background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 4, color: T.text, padding: "9px 14px", fontSize: 12, outline: "none", fontFamily: "inherit", height: 42 }} />}
       {isElevated && instruments.length === 0 && <span style={{ fontSize: 11, color: "#FDB52A" }}>Add instruments on Grades & Fees before registering students.</span>}
     </div>
@@ -438,14 +454,14 @@ export default function Students({
       {header}{toolbar}{chips}
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-      <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
+      <Card T={T} spot="students.table" style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={cols} />
           <tbody>
             {rows.map(e => {
               const s = studentOf(e.studentId), teacher = teachers.find(t => t.id === e.teacherId), room = rooms.find(r => r.id === e.schedule?.roomId);
               return (
-                <tr key={e.id} className={"sos-row" + (e.id === selectedId ? " sos-row--sel" : "")} tabIndex={0} aria-selected={e.id === selectedId}
+                <tr key={e.id} data-search={`students.row.${e.id}`} className={"sos-row" + (e.id === selectedId ? " sos-row--sel" : "")} tabIndex={0} aria-selected={e.id === selectedId}
                   onClick={() => toggleSelected(e.id)} onKeyDown={ev => { if (ev.key === "Enter") toggleSelected(e.id); }}
                   style={{ borderBottom: `0.6px solid ${T.border}`, opacity: e.status === "stopped" ? 0.65 : 1, cursor: "pointer" }}>
                   <td style={{ padding: "11px 14px" }}>

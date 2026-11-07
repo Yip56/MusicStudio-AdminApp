@@ -41,6 +41,8 @@ export function useAuth() {
                 createdAt:   invite.createdAt,
                 createdBy:   invite.createdBy,
                 claimedAt:   serverTimestamp(),
+                // firestore.rules verifies this invite (email, role, teacherId) before allowing the create
+                inviteId:    inviteDoc.id,
               };
               await setDoc(doc(db, "users", fbUser.uid), userData);
               await deleteDoc(inviteDoc.ref);
@@ -77,6 +79,9 @@ export function useAuth() {
     }
   }
 
+  // Opens Google's account chooser; the signed-in user is replaced only if another account is picked
+  const switchAccount = signInWithGoogle;
+
   async function signOut() {
     await fbSignOut(auth);
     setUser(null);
@@ -85,5 +90,5 @@ export function useAuth() {
     setAuthError(null);
   }
 
-  return { user, firestoreUser, role, loading, authError, signInWithGoogle, signOut };
+  return { user, firestoreUser, role, loading, authError, signInWithGoogle, switchAccount, signOut };
 }

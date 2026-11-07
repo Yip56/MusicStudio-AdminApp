@@ -45,8 +45,31 @@ describe("multi-instrument schedule rendering", () => {
   });
 
   it("scheduled class count respects the enrolment's date range", () => {
-    expect(getScheduledCountForMonth(piano, 2026, 7)).toBe(5); // Saturdays in Aug 2026
+    expect(getScheduledCountForMonth(piano, 2026, 7)).toBe(4); // 5 Saturdays in Aug 2026, the 5th is off
     expect(getScheduledCountForMonth({ ...piano, endDate: "2026-08-15" }, 2026, 7)).toBe(3); // Aug 1, 8, 15
+  });
+
+  it("no class on a Malaysian public holiday", () => {
+    const fri = { ...piano, schedule: sched(5, "09:00", "10:00", "r1") };
+    expect(getSessionsForDate("2026-05-01", [fri])).toHaveLength(0); // Labour Day (Friday)
+    expect(getSessionsForDate("2026-05-08", [fri])).toHaveLength(1);
+  });
+
+  it("the 5th lesson of a month is off, counted per student from their own first lesson", () => {
+    const AUG29 = "2026-08-29"; // 5th Saturday
+    expect(getSessionsForDate(AUG29, [piano])).toHaveLength(0);
+    expect(getSessionsForDate("2026-08-22", [piano])).toHaveLength(1);
+    // Started Aug 8 → lessons Aug 8, 15, 22, 29 = only 4, so Aug 29 runs
+    expect(getSessionsForDate(AUG29, [{ ...piano, startDate: "2026-08-08" }])).toHaveLength(1);
+    // Started Aug 1 → 5 lessons, the 5th is off; same day, same slot, different outcome per student
+    expect(getSessionsForDate(AUG29, [{ ...piano, startDate: "2026-08-01" }, { ...drum, startDate: "2026-08-08" }])).toHaveLength(1);
+  });
+
+  it("a holiday in a 5-week month leaves 4 lessons, so nothing else is cancelled", () => {
+    const sun = { ...piano, schedule: sched(5, "09:00", "10:00", "r1") };
+    // Fridays in May 2026: 1 (Labour Day), 8, 15, 22, 29 → 4 real lessons
+    expect(getScheduledCountForMonth(sun, 2026, 4)).toBe(4);
+    expect(getSessionsForDate("2026-05-29", [sun])).toHaveLength(1);
   });
 });
 

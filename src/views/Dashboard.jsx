@@ -41,11 +41,11 @@ function AttendanceBarChart({ data, T }) {
 }
 
 export default function Dashboard({
-  students, enrolments, deposits, teachers, instruments, tables, attendance, adminFlatFee,
+  students, enrolments, deposits, teachers, instruments, tables, attendance, calendar, adminFlatFee,
   monthSnapshots, monthRevisions, T, isMobile, currentUser,
 }) {
   const now = new Date();
-  const todaySessions = getMergedSessionsForDate(TODAY, enrolments, attendance);
+  const todaySessions = getMergedSessionsForDate(TODAY, enrolments, attendance, calendar);
   const present = todaySessions.filter(s => s.status === "present").length;
 
   const liveEnrolments = enrolments.filter(e => e.status !== "stopped" || (e.endDate && e.endDate >= TODAY));
@@ -57,7 +57,7 @@ export default function Dashboard({
   const { feeStatus } = usePayrollMonth(yearMonth);
 
   // Attendance stats (per enrolment, so a two-instrument student counts once per class)
-  const totalScheduled = enrolments.reduce((a, e) => a + getScheduledCountForMonth(e, now_year, now_month), 0);
+  const totalScheduled = enrolments.reduce((a, e) => a + getScheduledCountForMonth(e, now_year, now_month, calendar), 0);
   const totalAttended  = enrolments.reduce((a, e) => a + getAttendedCountForMonth(e.id, now_year, now_month, attendance), 0);
   const attendanceRate = totalScheduled > 0 ? totalAttended / totalScheduled : 0;
 
@@ -65,7 +65,7 @@ export default function Dashboard({
   // Applied deposits are recognised once, through the final fee they offset — never on top of it.
   const snap   = monthSnapshots.find(m => m.yearMonth === yearMonth);
   const rev    = monthRevisions.filter(r => r.yearMonth === yearMonth).sort((a, b) => b.revisionNo - a.revisionNo)[0];
-  const ctx    = { ym: yearMonth, ledger: feeStatus, teachers, tables, adminFlatFee, attendance };
+  const ctx    = { ym: yearMonth, ledger: feeStatus, teachers, tables, adminFlatFee, attendance, calendar };
   const rows   = snap ? (rev ?? snap).rows.map(snapshotRowToDisplay) : buildMonthRows(ctx, enrolments);
   const potentialRows = snap ? rows : buildMonthRows({ ...ctx, ledger: Object.fromEntries(enrolments.map(e => [e.id, { ...(feeStatus[e.id] ?? {}), collected: true, snap: null }])) }, enrolments);
 
@@ -79,7 +79,7 @@ export default function Dashboard({
   // Per-teacher chart data
   const teacherChartData = (teachers ?? []).map(t => {
     const mine = enrolments.filter(e => e.teacherId === t.id);
-    const sch = mine.reduce((a, e) => a + getScheduledCountForMonth(e, now_year, now_month), 0);
+    const sch = mine.reduce((a, e) => a + getScheduledCountForMonth(e, now_year, now_month, calendar), 0);
     const att = mine.reduce((a, e) => a + getAttendedCountForMonth(e.id, now_year, now_month, attendance), 0);
     return { label: t.name.split(" ").slice(-1)[0], attended: att, scheduled: sch };
   });
@@ -111,19 +111,19 @@ export default function Dashboard({
       {/* Stat cards */}
       {isMobile ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-          <Stat T={T} icon="👥" label="Students"        value={students.length}  sub="+0" />
-          <Stat T={T} icon="♪"  label="Teachers"        value={teachers.length}  sub="+0" />
-          <Stat T={T} icon="✓"  label="Today's Classes" value={`${present}/${todaySessions.length}`} />
-          <Stat T={T} icon="₿"  label="Fees Collected"  value={`RM ${totalCollected.toFixed(2)}`} />
-          <Stat T={T} icon="⌂"  label="Deposits Held"   value={`RM ${depositSummary.liability.toFixed(2)}`} />
+          <Stat T={T} spot="dashboard.students" icon="👥" label="Students"        value={students.length}  sub="+0" />
+          <Stat T={T} spot="dashboard.teachers" icon="♪"  label="Teachers"        value={teachers.length}  sub="+0" />
+          <Stat T={T} spot="dashboard.today" icon="✓"  label="Today's Classes" value={`${present}/${todaySessions.length}`} />
+          <Stat T={T} spot="dashboard.collected" icon="₿"  label="Fees Collected"  value={`RM ${totalCollected.toFixed(2)}`} />
+          <Stat T={T} spot="dashboard.deposits" icon="⌂"  label="Deposits Held"   value={`RM ${depositSummary.liability.toFixed(2)}`} />
         </div>
       ) : (
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
-          <Stat T={T} icon="👥" label="Total Students"  value={students.length}  sub="+0" />
-          <Stat T={T} icon="♪"  label="Teachers"        value={teachers.length}  sub="+0" />
-          <Stat T={T} icon="✓"  label="Today's Classes" value={`${present}/${todaySessions.length}`} />
-          <Stat T={T} icon="₿"  label="Fees Collected"  value={`RM ${totalCollected.toFixed(2)}`} />
-          <Stat T={T} icon="⌂"  label="Deposits Held (liability)" value={`RM ${depositSummary.liability.toFixed(2)}`} />
+          <Stat T={T} spot="dashboard.students" icon="👥" label="Total Students"  value={students.length}  sub="+0" />
+          <Stat T={T} spot="dashboard.teachers" icon="♪"  label="Teachers"        value={teachers.length}  sub="+0" />
+          <Stat T={T} spot="dashboard.today" icon="✓"  label="Today's Classes" value={`${present}/${todaySessions.length}`} />
+          <Stat T={T} spot="dashboard.collected" icon="₿"  label="Fees Collected"  value={`RM ${totalCollected.toFixed(2)}`} />
+          <Stat T={T} spot="dashboard.deposits" icon="⌂"  label="Deposits Held (liability)" value={`RM ${depositSummary.liability.toFixed(2)}`} />
         </div>
       )}
       {incomplete > 0 && (

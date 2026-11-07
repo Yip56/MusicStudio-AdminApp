@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { jsPDF } from "jspdf";
+import arkLogo from "../assets/ark-logo.png?inline";   // base64, so jsPDF can embed it synchronously
 import { usePayrollMonth } from "../hooks/usePayrollMonth.js";
 import { buildMonthRows } from "../domain/payroll.js";
 import { snapshotRowToDisplay } from "../domain/months.js";
@@ -7,7 +8,7 @@ import { TERM_LABEL } from "../domain/billing.js";
 
 export default function PayoutPreview({
   teacher, year, month,
-  students, teachers, enrolments, tables, attendance, adminFlatFee, monthSnapshots, monthRevisions,
+  students, teachers, enrolments, tables, attendance, calendar, adminFlatFee, monthSnapshots, monthRevisions,
   T, isMobile, onBack, currentUser
 }) {
   const yearMonth = `${year}-${String(month + 1).padStart(2, "0")}`;
@@ -23,8 +24,8 @@ export default function PayoutPreview({
   // Finalized months are read from the frozen snapshot (latest revision if one exists)
   const allRows = useMemo(() => {
     if (finalized) return (latestRev ?? finalized).rows.map(snapshotRowToDisplay);
-    return buildMonthRows({ ym: yearMonth, ledger: feeStatus, teachers, tables, adminFlatFee, attendance }, enrolments);
-  }, [finalized, latestRev, yearMonth, feeStatus, teachers, tables, adminFlatFee, attendance, enrolments]);
+    return buildMonthRows({ ym: yearMonth, ledger: feeStatus, teachers, tables, adminFlatFee, attendance, calendar }, enrolments);
+  }, [finalized, latestRev, yearMonth, feeStatus, teachers, tables, adminFlatFee, attendance, calendar, enrolments]);
 
   // covered months (2nd/3rd month of a quarterly fee) have nothing to pay out
   const details = allRows
@@ -95,11 +96,13 @@ export default function PayoutPreview({
     return `${f(period.startYM)} – ${f(`${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}`)}`;
   }
 
-  function downloadInvoice(d) {
+  // One layout, two documents: the invoice asks for payment; the receipt (only once collected) proves it.
+  function downloadPdf(d, kind) {
+    const isReceipt = kind === "receipt";
     const now = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
     const studentSlug = d.name.replace(/\s+/g, "");
-    const invoiceNo   = `INV-${studentSlug}-${dateStr}`;
+    const invoiceNo   = `${isReceipt ? "RCT" : "INV"}-${studentSlug}-${dateStr}`;
     const issuedDate  = now.toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" });
     const issuedTime  = now.toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" });
     const collectedDate = d.collectedAt?.toDate
@@ -135,13 +138,12 @@ export default function PayoutPreview({
       doc.line(M, ly, W - M, ly);
     }
 
-    // ── Studio name (top-left) + "Invoice" serif title (top-right) ─────────────
+    // ── Studio logo (top-left) + "Invoice" serif title (top-right) ─────────────
     y = 18;
-    sf(18, "bold", "helvetica", BLK);
-    doc.text("Ark Music Studio", M, y + 6);
+    doc.addImage(arkLogo, "PNG", M, y - 4, 24, 24);
 
     sf(30, "normal", "times", BLK);
-    doc.text("Invoice", W - M, y + 9, { align: "right" });
+    doc.text(isReceipt ? "Receipt" : "Invoice", W - M, y + 9, { align: "right" });
 
     y += 26;
     hLine(y, 0.4, BLK);
@@ -149,10 +151,10 @@ export default function PayoutPreview({
 
     // ── Billed To (left) / Invoice meta (right) ───────────────────────────────
     sf(9, "bold", "helvetica", BLK);
-    doc.text("Billed to:", M, y);
+    doc.text(isReceipt ? "Received from:" : "Billed to:", M, y);
 
     sf(8.5, "normal", "helvetica", GRY);
-    doc.text(`Invoice No.  ${invoiceNo}`, W - M, y, { align: "right" });
+    doc.text(`${isReceipt ? "Receipt" : "Invoice"} No.  ${invoiceNo}`, W - M, y, { align: "right" });
 
     y += 6;
     sf(9, "normal", "helvetica", BLK);
@@ -230,7 +232,7 @@ export default function PayoutPreview({
     const statusText = d.collected
       ? `Collected${collectedDate ? `  (${collectedDate})` : ""}`
       : "Pending";
-    tableRow("Payment Status", statusText, "");
+    tableRow(isReceipt ? "Paid On" : "Payment Status", isReceipt ? (collectedDate ?? "Collected") : statusText, "");
 
     if (d.deferredToMonth) {
       tableRow("Payout Deferred To", d.deferredToMonth, "");
@@ -242,12 +244,13 @@ export default function PayoutPreview({
     doc.setFillColor(...BLK);
     doc.rect(0, y, W, 14, "F");
     sf(11, "bold", "helvetica", [255, 255, 255]);
-    doc.text("Total", M, y + 9.5);
+    doc.text(isReceipt ? "Payment Received" : "Total", M, y + 9.5);
     doc.text(`RM ${payable.toFixed(2)}`, W - M, y + 9.5, { align: "right" });
 
     y += 22;
 
-    // ── Thank You (cursive-style) ─────────────────────────────────────────────
+    // ── Thank You (receipt only) ──────────────────────────────────────────────
+    if (isReceipt) {
     sf(22, "bolditalic", "times", BLK);
     doc.text("Thank You!", M, y);
 
@@ -264,6 +267,7 @@ export default function PayoutPreview({
     );
 
     y += 14;
+    }
 
     // ── Footer: issuer + studio address ──────────────────────────────────────
     sf(14, "italic", "times", BLK);
@@ -299,7 +303,7 @@ export default function PayoutPreview({
     "Student", "Grade", "Type", "Comm %",
     "Attendance", "Gross", "Teacher Payout", "Fees Collected", ""
   ];
-  const COL_WIDTHS = ["16%", "7%", "9%", "7%", "7%", "9%", "11%", "13%", "8%"];
+  const COL_WIDTHS = ["16%", "7%", "9%", "7%", "7%", "9%", "11%", "13%", "15%"];
 
   return (
     <div>
@@ -356,7 +360,7 @@ export default function PayoutPreview({
               : <span style={{ color: T.muted, fontSize: 13 }}>Payout not yet sent</span>
             }
           </div>
-          <button
+          <button data-search="payout.markpaid"
             disabled={!!finalized}
             onClick={() => markPayoutPaid(teacher.id, !isPaid)}
             style={{
@@ -458,9 +462,9 @@ export default function PayoutPreview({
                         )
                       }
                     </td>
-                    <td style={{ padding: "11px 14px" }}>
-                      <button
-                        onClick={() => downloadInvoice(d)}
+                    <td style={{ padding: "11px 14px", whiteSpace: "nowrap" }}>
+                      <button data-search="payout.invoice"
+                        onClick={() => downloadPdf(d, "invoice")}
                         title="Download invoice for this student"
                         style={{
                           padding: "4px 10px", borderRadius: 4, cursor: "pointer",
@@ -470,6 +474,20 @@ export default function PayoutPreview({
                         }}
                       >
                         Invoice
+                      </button>
+                      <button data-search="payout.receipt"
+                        onClick={() => downloadPdf(d, "receipt")}
+                        disabled={!d.collected}
+                        title={d.collected ? "Download payment receipt for this student" : "Available once the fee is collected"}
+                        style={{
+                          padding: "4px 10px", borderRadius: 4, marginLeft: 6,
+                          cursor: d.collected ? "pointer" : "not-allowed", opacity: d.collected ? 1 : 0.4,
+                          fontFamily: "inherit", fontSize: 11, fontWeight: 500,
+                          background: "rgba(20,202,116,0.12)", color: "#14CA74",
+                          border: "0.6px solid rgba(20,202,116,0.3)",
+                        }}
+                      >
+                        Receipt
                       </button>
                     </td>
                   </tr>
@@ -498,7 +516,7 @@ export default function PayoutPreview({
 
         {/* Action buttons */}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
-          <button
+          <button data-search="payout.csv"
             onClick={downloadCSV}
             style={{
               padding: "8px 16px", borderRadius: 4, border: "none", cursor: "pointer",

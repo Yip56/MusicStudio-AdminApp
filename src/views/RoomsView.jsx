@@ -4,7 +4,7 @@ import { useShakeError } from "../hooks/useShakeError.js";
 import { TODAY, ROOM_COLORS, STATUS_META } from "../data/seed.js";
 import { getMergedSessionsForDate } from "../domain/enrolments.js";
 
-export default function RoomsView({ rooms, enrolments, students, teachers, attendance, instruments, actions, T, isMobile, setDirty }) {
+export default function RoomsView({ rooms, enrolments, students, teachers, attendance, calendar, instruments, actions, T, isMobile, setDirty }) {
   const [pageError, setPageError, pageShake] = useShakeError();
   const [selRoom,  setSelRoom]  = useState(null);
   const [modal,    setModal]    = useState(null);
@@ -14,12 +14,12 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
 
   const roomSessions = useMemo(() => {
     if (!selRoom) return [];
-    return getMergedSessionsForDate(viewDate, enrolments, attendance)
+    return getMergedSessionsForDate(viewDate, enrolments, attendance, calendar)
       .filter(s => s.roomId === selRoom.id)
       .sort((a, b) => a.startTime.localeCompare(b.startTime));
-  }, [selRoom, viewDate, enrolments, attendance]);
+  }, [selRoom, viewDate, enrolments, attendance, calendar]);
 
-  const todaySessions = useMemo(() => getMergedSessionsForDate(TODAY, enrolments, attendance), [enrolments, attendance]);
+  const todaySessions = useMemo(() => getMergedSessionsForDate(TODAY, enrolments, attendance, calendar), [enrolments, attendance, calendar]);
 
   const filteredRooms = rooms.filter(r => {
     const occupied = todaySessions.some(s => s.roomId === r.id);
@@ -164,12 +164,12 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Rooms</h2>
-          <Btn T={T} onClick={openAdd} style={{ padding: "7px 14px", fontSize: 12 }}>+ Add</Btn>
+          <Btn T={T} data-search="rooms.add" onClick={openAdd} style={{ padding: "7px 14px", fontSize: 12 }}>+ Add</Btn>
         </div>
 
         {pageError && !modal && <ShakeBox shake={pageShake} style={{ fontSize: 12, color: "#FF5A65", marginBottom: 10 }}>{pageError}</ShakeBox>}
         {/* Filter tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        <div data-search="rooms.filter" style={{ display: "flex", gap: 6, marginBottom: 12 }}>
           {["all","free","occupied"].map(f => (
             <Btn key={f} T={T} variant={filter === f ? "active" : "ghost"}
               style={{ flex: 1, padding: "7px 0", fontSize: 12 }}
@@ -185,7 +185,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
             const occupied = todaySessions.filter(s => s.roomId === r.id);
             const isSelected = selRoom?.id === r.id;
             return (
-              <div key={r.id}>
+              <div key={r.id} data-search={`rooms.row.${r.id}`}>
                 <div onClick={() => setSelRoom(isSelected ? null : r)}
                   style={{
                     background: T.panel, borderRadius: 14, padding: "14px 16px",
@@ -236,7 +236,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ fontSize: 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Rooms</h2>
-        <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+        <div data-search="rooms.filter" style={{ display: "flex", gap: 7, alignItems: "center" }}>
           {["all","free","occupied"].map(f => (
             <Btn key={f} T={T} variant={filter === f ? "active" : "ghost"}
               style={{ padding: "6px 13px", fontSize: 12 }}
@@ -244,7 +244,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </Btn>
           ))}
-          <Btn T={T} onClick={openAdd} style={{ marginLeft: 6, background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>+ Add Room</Btn>
+          <Btn T={T} data-search="rooms.add" onClick={openAdd} style={{ marginLeft: 6, background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>+ Add Room</Btn>
         </div>
       </div>
 
@@ -255,7 +255,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
             const occupied = todaySessions.filter(s => s.roomId === r.id);
             const isSelected = selRoom?.id === r.id;
             return (
-              <div key={r.id}
+              <div key={r.id} data-search={`rooms.row.${r.id}`}
                 onClick={() => setSelRoom(isSelected ? null : r)}
                 style={{
                   background: T.panel, borderRadius: 12, padding: "14px 16px",

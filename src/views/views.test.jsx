@@ -256,7 +256,7 @@ describe("UX layer (sheet, palette, filters)", () => {
     const nav = [{ id: "calendar", label: "Calendar", icon: "▦" }, { id: "students", label: "Students", icon: "♪" }];
     const out = renderToStaticMarkup(
       <CommandPalette T={T} nav={nav} students={students} enrolments={enrolments} currentUser={teacher}
-        onClose={() => {}} onPage={() => {}} onStudent={() => {}} />);
+        onClose={() => {}} onPick={() => {}} />);
     expect(out).toContain("Calendar");
     expect(out).toContain("Students");
     expect(out).not.toContain("Payroll");

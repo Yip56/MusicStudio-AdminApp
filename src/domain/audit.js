@@ -18,6 +18,7 @@ export const AUDIT_TYPES = {
   teacher:      "Teacher",
   instrument:   "Instrument",
   settings:     "Settings",
+  calendar:     "Calendar",
 };
 
 /** [{ field, from, to }] for each key whose value differs. */

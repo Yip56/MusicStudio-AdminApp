@@ -32,9 +32,9 @@ export function Badge({ label, color = "#AEB9E1", bg = "#0A1330", border }) {
 }
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
-export const Card = forwardRef(function Card({ children, style = {}, T }, ref) {
+export const Card = forwardRef(function Card({ children, style = {}, T, spot }, ref) {
   return (
-    <div ref={ref} style={{
+    <div ref={ref} data-search={spot} style={{
       background: T.panel, border: `0.6px solid ${T.border2}`,
       borderRadius: 12, padding: 20,
       boxShadow: "1px 1px 1px 0px rgba(16,25,52,0.4)",
@@ -44,11 +44,11 @@ export const Card = forwardRef(function Card({ children, style = {}, T }, ref) {
 });
 
 // ─── Stat ─────────────────────────────────────────────────────────────────────
-export function Stat({ label, value, sub, color, icon = "◈", T }) {
+export function Stat({ label, value, sub, color, icon = "◈", T, spot }) {
   const ac = color || T.accent;
   const isPositive = sub && !sub.toString().startsWith("-");
   return (
-    <div style={{
+    <div data-search={spot} style={{
       background: T.panel, border: `0.6px solid ${T.border2}`, borderRadius: 8,
       padding: "19px 20px", flex: 1, minWidth: 140,
       boxShadow: "1px 1px 1px 0px rgba(16,25,52,0.4)"
@@ -145,7 +145,7 @@ export function Btn({ children, variant = "primary", style = {}, T, ...p }) {
 const project = (v, rate = 0.99) => (v / 1000) * rate / (1 - rate);          // v in px/s → px
 const rubber = (o, dim = 160, c = 0.55) => (o * dim * c) / (dim + c * Math.abs(o));
 
-export function Sheet({ title, onClose, children, T, dismissOnScrim = true }) {
+export function Sheet({ title, onClose, children, T, dismissOnScrim = true, spot }) {
   const [shown, setShown] = useState(false);
   const [dy, setDy] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -199,7 +199,7 @@ export function Sheet({ title, onClose, children, T, dismissOnScrim = true }) {
         position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)",
         opacity: shown ? Math.max(0, 1 - dy / h) : 0, transition: dragging ? "none" : "opacity 0.25s ease-out",
       }} />
-      <div ref={panel} className="sos-sheet sos-glass" role="dialog" aria-modal="true" aria-label={title}
+      <div ref={panel} data-search={spot} className="sos-sheet sos-glass" role="dialog" aria-modal="true" aria-label={title}
         style={{
           position: "absolute", left: 0, right: 0, bottom: 0, maxHeight: "92dvh",
           display: "flex", flexDirection: "column",
@@ -244,7 +244,7 @@ export function ShakeBox({ shake = 0, style, children }) {
 // ─── Modal ────────────────────────────────────────────────────────────────────
 // Centered dialog on desktop; bottom sheet on phones. The sheet is only dismissed by its handle / ✕
 // (never by a stray tap outside) because most modals here hold unsaved form input.
-export function Modal({ title, onClose, children, T, width = 460 }) {
+export function Modal({ title, onClose, children, T, width = 460, spot }) {
   const mobile = useMediaQuery("(max-width: 767px)");
   useEffect(() => {
     if (mobile) return;
@@ -253,13 +253,13 @@ export function Modal({ title, onClose, children, T, width = 460 }) {
     return () => window.removeEventListener("keydown", h);
   }, [mobile, onClose]);
 
-  if (mobile) return <Sheet T={T} title={title} onClose={onClose} dismissOnScrim={false}>{children}</Sheet>;
+  if (mobile) return <Sheet T={T} title={title} onClose={onClose} dismissOnScrim={false} spot={spot}>{children}</Sheet>;
   return (
     <div className="sos-fade" style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)",
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200
     }} onClick={onClose}>
-      <div className="sos-pop" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()} style={{
+      <div className="sos-pop" data-search={spot} role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()} style={{
         background: T.panel, border: `0.6px solid ${T.border2}`,
         borderRadius: 12, padding: 28, width, maxWidth: "94vw", maxHeight: "88vh", overflowY: "auto",
         boxShadow: "0px 17px 17px 0px rgba(1,5,17,0.1)"

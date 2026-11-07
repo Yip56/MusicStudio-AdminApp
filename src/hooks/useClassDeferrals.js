@@ -21,14 +21,16 @@ import { db } from "../firebase.js";
  *
  * Only applies to non-attendance-based students (enforced in the UI, not here).
  */
-export function useClassDeferrals() {
+export function useClassDeferrals(enabled = true) {
   const [deferrals, setDeferrals] = useState([]);
 
+  // Rules need a provisioned users/{uid} doc, so don't subscribe until the role is known
   useEffect(() => {
+    if (!enabled) { setDeferrals([]); return; }
     return onSnapshot(collection(db, "class_deferrals"), snap => {
       setDeferrals(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-  }, []);
+    }, err => console.error("[class_deferrals] listener failed:", err.message));
+  }, [enabled]);
 
   async function addDeferral({ enrolmentId, studentId, teacherId, originalDate, makeupDate, makeupStartTime, makeupEndTime, createdBy }) {
     await addDoc(collection(db, "class_deferrals"), {

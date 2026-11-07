@@ -18,7 +18,7 @@ You can only see and change **your own** classes. Other teachers' classes appear
 
 To log out, click **Sign Out** at the bottom of the left menu (on a phone: tap **More** in the bottom bar, then **Sign Out**).
 
-**Quick search:** press **Ctrl + K** (or **Cmd + K** on a Mac) — or tap the magnifier at the top on a phone — and type a page name or one of your students to jump straight to it.
+**Quick search:** press **Ctrl + K** (or **Cmd + K** on a Mac) — or tap the magnifier at the top on a phone — and type what you are looking for — a page, one of your students, or a button such as "change class time", "book extra session" or "update grade". Press **Enter** and the app takes you there and flashes a purple ring around it for a few seconds, so you can see exactly where to click. Searching for something you are not allowed to use (for example payroll) simply shows no result.
 
 ---
 
@@ -35,6 +35,13 @@ To log out, click **Sign Out** at the bottom of the left menu (on a phone: tap *
 A student who learns two instruments has **two separate classes**, each with its own teacher, room and time. They appear **twice** in the calendar — once for each instrument, at that class's own time.
 
 For example, Mia learns Piano on Saturday at 09:00 and Drum on Saturday at 11:00. You will see "Mia · Piano" at 09:00 and "Mia · Drum" at 11:00. You only see the one that is yours.
+
+### Public holidays and 5th-week lessons
+
+- **Public holidays and studio closures.** A date that is a Malaysian public holiday (or a day the studio is closed) shows its number in **amber**. When you pick it, a tag at the top says what it is and there are no classes. If the office decides to run classes on a holiday, the number turns **green** and the classes appear as normal.
+- **5th-week lessons.** When a month has five weeks, a student's 5th lesson of that month is a free week with no class. The date shows its number in **blue**, and a blue box lists your students who have no class that day. The count starts from each student's own first lesson of the month, so some of your students can have five lessons in a month and others four. If the office decides to run it anyway, the box turns green and the class shows as usual.
+
+Only the office can change these. If a date looks wrong, ask them.
 
 ---
 

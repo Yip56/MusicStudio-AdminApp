@@ -89,6 +89,8 @@ functions/index.js           getPublicFees
 | `sysadmin` | Everything | Admin + user accounts + **revising finalized months** |
 | `denied` | Access Denied | No `users` doc for this Google account |
 
+**Admin who also teaches:** an admin/sysadmin account may carry a teacher profile (`teacherId`; User Mgmt → "Also a teacher", on create or edit). Role stays admin: full access, no grade/clash *requests* (grade edits are direct; a room clash is a hard block telling them to move/remove the other class first), may collect fees and approve anything including their own items. The profile adds them to teacher pickers and Payroll, a "My classes only" toggle on Calendar and "My students only" chip on Students, and they receive clash requests addressed to their classes (`useNotifications`). Unticking unlinks the profile (it stays as a teacher row).
+
 Auth gate order in App.jsx: **spinner → Login → AccessDenied → (spinner until fees + studio data load) → main app**.
 Teachers don't subscribe to admin-only collections (`deposits`, `discounts`, `month_snapshots`, `month_revisions`, `activity_log`).
 
@@ -137,6 +139,13 @@ commissionPct | null                                         // null → teacher
 - `findScheduleConflicts(candidate, existing, {ignoreId, asOf})`: same weekday + overlapping times (`09:00–10:00` and `10:00–11:00` don't overlap) → **student** (can't be in two classes), **room** (double-booked), **teacher** (double-booked). Stopped enrolments past their last day are ignored.
 - Enforced in `useStudio.checkEnrolment` (every enrolment create/edit, in app code — at this studio's scale no rules-level check is needed) and shown live in `EnrolmentForm`. `validateEnrolment` also requires: instrument on Grades & Fees, grade valid for the syllabus, teacher teaches it, room type includes it.
 - Calendar one-off bookings: student/teacher overlap and wrong room type are **hard blocks**; a room already taken by another teacher still goes through the existing **clash-request** approval flow.
+
+## Holidays, closures & the 5th-week rule (`domain/calendar.js`, `data/holidays.js`)
+- `data/holidays.js` = built-in Malaysian federal public holidays (verify yearly; 2027 has fixed-date ones only). **No class** on them.
+- **5th-week rule:** per enrolment, per month, count its lessons from its own first lesson (`startDate`/`endDate` respected; closed days are not lessons). The 5th is off. Some students get 5 lessons, some 4.
+- `getSessionsForDate`, `getRecurringDates`, `getScheduledCountForMonth` (attendance-based payroll) and `buildEnrolmentRow` (`ctx.calendar`) all take the optional `calendar` built by `buildCalendar(calendar_overrides)`; `useStudio` exposes `calendar` and App passes it in `shared`.
+- **Admin overrides** (Calendar page, hidden from teachers; Firestore `calendar_overrides`, admin write): `{kind:"day", status:"open"|"closed"}` runs a public holiday / closes the studio on any date (doc id = date); `{kind:"fifth", enrolmentId, date}` runs one enrolment's 5th-week lesson (id `enrolmentId_date`). Actions: `setDayOverride`, `clearDayOverride`, `runFifthLessons`, `clearFifthLesson` — blocked for finalized months, logged as type `calendar`. UI says **Run** / **Run all** / **Undo** (never "hold").
+- Deploy `firestore.rules` after pulling this (new collection).
 
 ## Grade changes (no grade lock)
 v7 originally planned a "grade lock"; it was **replaced by Finalize Month**. Grade/duration edits are always allowed. `needsCollectedFeeWarning` makes `EnrolmentForm` require an "I understand" tick when the current period's fee is already collected; the grade-request drawer shows an equivalent note. A collected fee keeps its amount (snapshot, below), so a grade change only affects future fees. If an admin override/lock is ever wanted, it belongs in `EnrolmentForm.submit` and `useStudio.updateEnrolment`.
@@ -237,6 +246,9 @@ Edit `firestore.rules` → `firebase deploy --only firestore:rules` (live immedi
 
 ### Add a new view
 Create `src/views/MyView.jsx`; in `App.jsx` import it, add to `ALL_NAV` (`{ id, label, icon, roles }`) and to `views`. It receives the `shared` props (`T`, `currentUser`, store data, `actions`, `log`, `goTo`, `setDirty`…).
+
+### Make a new button / table / card searchable
+Quick search (Ctrl/Cmd+K) is driven by `src/data/searchIndex.js` (`SEARCH_ENTRIES`, plus live students/teachers/rooms/discounts/instruments from `buildLiveEntries`). To add one: tag the element `data-search="page.thing"` (on `Card`, `Stat` and `Modal` use the `spot="page.thing"` prop), then add `{ id, page, label, keywords, roles }` to the index. `open: "key"` makes the view run a handler first via `useSearchIntent(intent, "page", { key: fn })` — only for harmless UI (a tab, a blank form), never an action. Matching logic is `domain/search.js`; the highlight is `utils/spotlight.js` (`.sos-spot` in index.css). `search.test.js` fails if an index entry has no matching tag in the UI.
 
 ### Add a new theme token
 Add to both `dark` and `light` in `src/utils/tokens.js`; use as `T.myToken`.

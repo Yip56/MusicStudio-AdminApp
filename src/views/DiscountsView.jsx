@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchIntent } from "../hooks/useSearchIntent.js";
 import { Card, Btn, Badge, Modal, Inp, Sel, THead, ShakeBox } from "../components/UI.jsx";
 import { useShakeError } from "../hooks/useShakeError.js";
 import { addMonths, ymKey, formatYM, formatYMLong } from "../domain/time.js";
@@ -11,13 +12,14 @@ const errBox = { fontSize: 12, color: "#FF5A65", background: "rgba(255,90,101,0.
  * it can be applied). Admins then apply a running discount to a student's fee from the Payroll page
  * (the "Discount" button under FEE). Applying is per student, per fee month.
  */
-export default function DiscountsView({ discounts, actions, T, isMobile, setDirty }) {
+export default function DiscountsView({ discounts, actions, T, isMobile, setDirty, intent }) {
   const curYM = ymKey(new Date().getFullYear(), new Date().getMonth());
   const blank = { name: "", type: "percent", value: "", startMonth: curYM, durationMonths: 1, note: "" };
   const [modal, setModal] = useState(null);   // "add" | discount
   const [form,  setForm]  = useState(blank);
   const [error, setError, errShake] = useShakeError();
   const [busy,  setBusy]  = useState(false);
+  useSearchIntent(intent, "discounts", { new: () => { setError(null); setForm(blank); setModal("add"); } });
 
   const set = (k, v) => { setDirty?.(true); setForm(f => ({ ...f, [k]: v })); };
   const monthOpts = Array.from({ length: 24 }, (_, i) => addMonths(addMonths(curYM, -6), i));
@@ -53,7 +55,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Discounts</h2>
-        <Btn T={T} onClick={() => { setError(null); setForm(blank); setModal("add"); }}>+ New Discount</Btn>
+        <Btn T={T} data-search="discounts.new" onClick={() => { setError(null); setForm(blank); setModal("add"); }}>+ New Discount</Btn>
       </div>
       <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.7, marginBottom: 16, maxWidth: 640 }}>
         Create a promotion here, then apply it to a student on the <strong style={{ color: T.text }}>Payroll</strong> page using the Discount button under their fee.
@@ -61,7 +63,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
       </p>
       {error && !modal && <ShakeBox shake={errShake} style={{ ...errBox, marginBottom: 14 }}>{error}</ShakeBox>}
 
-      <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
+      <Card T={T} spot="discounts.table" style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <THead T={T} cols={["Name", "Discount", "Runs", "Status", "Note", ""]} />
@@ -69,7 +71,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
               {rows.map(d => {
                 const st = status(d);
                 return (
-                  <tr key={d.id} style={{ borderBottom: `0.6px solid ${T.border}` }}>
+                  <tr key={d.id} data-search={`discounts.row.${d.id}`} style={{ borderBottom: `0.6px solid ${T.border}` }}>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.text, fontWeight: 600 }}>{d.name}</td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: "#4ade80", fontWeight: 600 }}>{label(d)}</td>
                     <td style={{ padding: "11px 14px", fontSize: 12, color: T.muted }}>{runsLabel(d)}</td>
@@ -78,7 +80,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
                     <td style={{ padding: "11px 14px" }}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <Btn T={T} variant="ghost" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => { setError(null); setForm({ ...blank, ...d }); setModal(d); }}>Edit</Btn>
-                        <Btn T={T} variant="danger" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => remove(d)}>Delete</Btn>
+                        <Btn T={T} data-search="discounts.delete" variant="danger" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => remove(d)}>Delete</Btn>
                       </div>
                     </td>
                   </tr>
@@ -91,7 +93,7 @@ export default function DiscountsView({ discounts, actions, T, isMobile, setDirt
       </Card>
 
       {modal && (
-        <Modal T={T} title={modal === "add" ? "New Discount" : "Edit Discount"} width={460} onClose={() => { setModal(null); setDirty?.(false); }}>
+        <Modal T={T} spot="discounts.form" title={modal === "add" ? "New Discount" : "Edit Discount"} width={460} onClose={() => { setModal(null); setDirty?.(false); }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
             <Inp T={T} label="Discount name" value={form.name} placeholder="e.g. Back-to-school" onChange={e => set("name", e.target.value)} />
             <div style={{ display: "flex", gap: 11 }}>

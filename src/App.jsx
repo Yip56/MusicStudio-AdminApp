@@ -27,6 +27,7 @@ import Login          from "./views/Login.jsx";
 import AccessDenied   from "./views/AccessDenied.jsx";
 import { Avatar, Badge, Modal, Btn, Sheet, ShakeBox } from "./components/UI.jsx";
 import CommandPalette from "./components/CommandPalette.jsx";
+import { spotlight } from "./utils/spotlight.js";
 
 const ALL_NAV = [
   { id: "dashboard", label: "Dashboard",     icon: "◈", roles: ["admin", "sysadmin"] },
@@ -46,7 +47,7 @@ const MOBILE_PRIMARY = 4; // number of nav items shown in the floating tab bar b
 export default function App() {
   const { theme, toggle } = useTheme();
   const T = getTokens(theme);
-  const { user, firestoreUser, role, loading, authError, signInWithGoogle, signOut } = useAuth();
+  const { user, firestoreUser, role, loading, authError, signInWithGoogle, switchAccount, signOut } = useAuth();
   const { notifications, pendingCount, resolveNotification, dismissNotification } = useNotifications(firestoreUser);
   const [gradeNotes,        setGradeNotes]        = useState({});   // admin's note per pending grade request
   const [gradeNoteErr,      setGradeNoteErr]      = useState({});   // { [notifId]: shake count } once a reject was blocked
@@ -55,8 +56,10 @@ export default function App() {
   const [view,              setView]              = useState(null);
   const [notifOpen,         setNotifOpen]         = useState(false);
   const [moreOpen,          setMoreOpen]          = useState(false);
+  const [profileOpen,       setProfileOpen]       = useState(false);
   const [paletteOpen,       setPaletteOpen]       = useState(false);
   const [focusStudentId,    setFocusStudentId]    = useState(null);
+  const [intent,            setIntent]            = useState(null);   // quick-search target: { page, id, open, arg, nonce }
   const [dirty,             setDirty]             = useState(false);
   const [pendingNav,        setPendingNav]        = useState(null);
   const [payoutPreviewCtx,  setPayoutPreviewCtx]  = useState(null);
@@ -64,9 +67,9 @@ export default function App() {
   const [contemporaryFees, setContemporaryFees] = useState({});
   const [feesLoaded,       setFeesLoaded]       = useState(false);
   const feesBaseline = useRef({ fees: {}, contemporaryFees: {} });
-  const { deferrals, addDeferral, removeDeferral, updateDeferralStatus } = useClassDeferrals();
-
-  const signedIn = !!user && role !== "denied" && !loading;
+  // role is only set once the users/{uid} doc is read or the invite claimed — Firestore rules require that doc
+  const signedIn = !!user && !!role && role !== "denied" && !loading;
+  const { deferrals, addDeferral, removeDeferral, updateDeferralStatus } = useClassDeferrals(signedIn);
   const currentUser = user ? {
     uid:         user.uid,
     role,
@@ -79,7 +82,7 @@ export default function App() {
   // All studio data (students, enrolments, deposits, teachers, rooms, attendance…) lives in Firestore
   const studio = useStudio({ enabled: signedIn, actor: currentUser, fees, contemporaryFees });
   const { students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
-          monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, actions, log } = studio;
+          monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log } = studio;
 
   // Theme -> CSS variables (hover/selection/solid fallbacks used by index.css) and the browser's status-bar colour
   useEffect(() => {
@@ -101,6 +104,9 @@ export default function App() {
     return () => window.removeEventListener("keydown", h);
   }, []);
 
+  // Quick search picked something: once its page has rendered, scroll to it and pulse a ring around it
+  useEffect(() => (intent?.id ? spotlight(intent.id) : undefined), [intent?.nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!dirty) return;
     const h = e => { e.preventDefault(); e.returnValue = ""; };
@@ -110,7 +116,7 @@ export default function App() {
 
   // Load fees from Firestore once authenticated. The fee tables ARE the instrument list.
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !signedIn) return;
     let cancelled = false;
     async function loadFees() {
       try {
@@ -130,7 +136,7 @@ export default function App() {
     }
     loadFees();
     return () => { cancelled = true; };
-  }, [user?.uid]);
+  }, [user?.uid, signedIn]);
 
   // Instruments removed from Grades & Fees → drop dangling references (admins only, once fees + data are loaded)
   const cleaned = useRef(false);
@@ -254,7 +260,7 @@ export default function App() {
   // ── Shared props ─────────────────────────────────────────────────────────────
   const shared = {
     students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
-    monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, actions, log,
+    monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log,
     fees,     setFees,
     contemporaryFees, setContemporaryFees,
     deferrals, addDeferral, removeDeferral, updateDeferralStatus,
@@ -264,6 +270,7 @@ export default function App() {
     isMobile,
     setDirty,
     goTo: navigateTo,
+    intent,
   };
 
   function openPayoutPreview(teacher, year, month) {
@@ -414,11 +421,48 @@ export default function App() {
     </>
   );
 
+  // Go to the result's page, then let the view open anything it needs (tab, blank form) and highlight the target
+  // Profile-picture dropdown (desktop sidebar footer, mobile top bar); `pos` places it
+  const accountMenu = pos => (
+    <div role="menu" className="sos-pop" style={{
+      position: "absolute", zIndex: 250, ...pos,
+      background: T.panel, border: `0.6px solid ${T.border2}`, borderRadius: 8, padding: 4,
+      boxShadow: "0 12px 32px rgba(0,0,0,0.35)",
+    }}>
+      <div style={{ padding: "8px 10px", fontSize: 11, color: T.muted, wordBreak: "break-all" }}>{currentUser.email}</div>
+      {[
+        { label: "Switch account", icon: "⇄", run: switchAccount },
+        { label: "Sign out",       icon: "↩", run: signOut },
+      ].map(m => (
+        <button key={m.label} role="menuitem" onClick={() => { setProfileOpen(false); m.run(); }}
+          style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "8px 10px", border: "none",
+            borderRadius: 6, background: "transparent", color: T.text, fontSize: 13, fontFamily: "inherit",
+            cursor: "pointer", textAlign: "left", minHeight: 36,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+          <span style={{ width: 16, textAlign: "center", color: T.muted }}>{m.icon}</span>{m.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  function pickSearch(entry) {
+    if (entry.kind === "student") setFocusStudentId(entry.studentId);
+    if (entry.page === "payout_preview") {
+      const t = teachers[0];
+      if (t) { const d = new Date(); openPayoutPreview(t, d.getFullYear(), d.getMonth()); }
+      else navigateTo("payroll");
+    } else navigateTo(entry.page);
+    setIntent({ page: entry.page, id: entry.kind === "page" ? null : entry.id, open: entry.open ?? null, arg: entry.arg ?? null, nonce: Date.now() });
+  }
+
   const palette = paletteOpen && (
-    <CommandPalette T={T} nav={nav} students={students} enrolments={enrolments} currentUser={currentUser}
+    <CommandPalette T={T} nav={nav} students={students} enrolments={enrolments} teachers={teachers} rooms={rooms}
+      discounts={discounts} instruments={instruments} currentUser={currentUser}
       onClose={() => setPaletteOpen(false)}
-      onPage={navigateTo}
-      onStudent={id => { setFocusStudentId(id); navigateTo("students"); }} />
+      onPick={pickSearch} />
   );
   const unsavedModal = pendingNav !== null && (
     <Modal T={T} title="Unsaved Changes" onClose={() => setPendingNav(null)}>
@@ -468,10 +512,19 @@ export default function App() {
                 }}>{pendingCount}</span>
               )}
             </button>
-            <div style={{ marginLeft: 4 }}>
-              {currentUser.photoURL
-                ? <img src={currentUser.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", display: "block" }} />
-                : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={30} />}
+            <div style={{ marginLeft: 4, position: "relative" }}>
+              {profileOpen && (
+                <>
+                  <div onClick={() => setProfileOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 249 }} />
+                  {accountMenu({ top: "calc(100% + 8px)", right: 0, width: 220 })}
+                </>
+              )}
+              <button onClick={() => setProfileOpen(o => !o)} aria-label="Account" aria-haspopup="menu" aria-expanded={profileOpen}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "block", borderRadius: "50%" }}>
+                {currentUser.photoURL
+                  ? <img src={currentUser.photoURL} alt="" style={{ width: 30, height: 30, borderRadius: "50%", display: "block" }} />
+                  : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={30} />}
+              </button>
             </div>
           </div>
         </div>
@@ -523,6 +576,11 @@ export default function App() {
                   );
                 })}
                 <div style={{ borderTop: moreNavItems.length ? `0.6px solid ${T.border}` : "none", marginTop: moreNavItems.length ? 8 : 0, paddingTop: moreNavItems.length ? 8 : 0 }}>
+                  <button onClick={() => { dismiss(); switchAccount(); }} style={{
+                    display: "flex", alignItems: "center", gap: 14, width: "100%", minHeight: 50, padding: "0 12px",
+                    border: "none", borderRadius: 12, background: "transparent", cursor: "pointer", fontFamily: "inherit",
+                    color: T.muted, fontSize: 15, fontWeight: 500, textAlign: "left",
+                  }}><span style={{ fontSize: 18, width: 24, textAlign: "center" }}>⇄</span>Switch Account</button>
                   <button onClick={signOut} style={{
                     display: "flex", alignItems: "center", gap: 14, width: "100%", minHeight: 50, padding: "0 12px",
                     border: "none", borderRadius: 12, background: "transparent", cursor: "pointer", fontFamily: "inherit",
@@ -612,19 +670,28 @@ export default function App() {
 
         {/* Footer user area */}
         <div style={{ padding: "16px 28px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-            <div style={{ flexShrink: 0 }}>
-              {currentUser.photoURL
-                ? <img src={currentUser.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", display: "block" }} />
-                : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={32} />
-              }
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {currentUser.displayName || currentUser.email}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, position: "relative" }}>
+            {profileOpen && (
+              <>
+                <div onClick={() => setProfileOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 249 }} />
+                {accountMenu({ bottom: "calc(100% + 8px)", left: 0, right: 0 })}
+              </>
+            )}
+            <button onClick={() => setProfileOpen(o => !o)} aria-haspopup="menu" aria-expanded={profileOpen} title="Account"
+              style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+              <div style={{ flexShrink: 0 }}>
+                {currentUser.photoURL
+                  ? <img src={currentUser.photoURL} alt="" style={{ width: 32, height: 32, borderRadius: "50%", display: "block" }} />
+                  : <Avatar name={currentUser.displayName || currentUser.email || "?"} size={32} />
+                }
               </div>
-              <div style={{ fontSize: 12, color: T.muted }}>{role}</div>
-            </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {currentUser.displayName || currentUser.email}
+                </div>
+                <div style={{ fontSize: 12, color: T.muted }}>{role}</div>
+              </div>
+            </button>
             <button onClick={() => setNotifOpen(o => !o)} title="Notifications"
               style={{ background: "none", border: "none", cursor: "pointer", position: "relative", padding: 4, flexShrink: 0, color: T.muted, fontSize: 16 }}>
               🔔

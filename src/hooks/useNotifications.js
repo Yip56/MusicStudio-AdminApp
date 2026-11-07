@@ -10,29 +10,25 @@ export function useNotifications(firestoreUser) {
 
     const role      = firestoreUser.role;
     const teacherId = firestoreUser.teacherId;
-    let q;
-
+    const pending = [where("status", "==", "pending")];
+    const queries = [];
     if (role === "teacher" && teacherId) {
-      q = query(
-        collection(db, "notifications"),
-        where("toTeacherId", "==", teacherId),
-        where("status", "==", "pending")
-      );
+      queries.push(query(collection(db, "notifications"), where("toTeacherId", "==", teacherId), ...pending));
     } else if (role === "admin" || role === "sysadmin") {
-      q = query(
-        collection(db, "notifications"),
-        where("toRole", "==", "admin"),
-        where("status", "==", "pending")
-      );
+      queries.push(query(collection(db, "notifications"), where("toRole", "==", "admin"), ...pending));
+      // An admin who is also a teacher receives clash requests addressed to their classes too
+      if (teacherId) queries.push(query(collection(db, "notifications"), where("toTeacherId", "==", teacherId), ...pending));
     } else {
       setNotifications([]);
       return;
     }
 
-    const unsub = onSnapshot(q, snap =>
-      setNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-    );
-    return unsub;
+    const results = queries.map(() => []);
+    const unsubs = queries.map((q, i) => onSnapshot(q, snap => {
+      results[i] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setNotifications(results.flat());
+    }));
+    return () => unsubs.forEach(u => u());
   }, [firestoreUser]);
 
   // `note` = the admin's message to the teacher (grade requests); stored on the resolved request

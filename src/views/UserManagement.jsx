@@ -11,7 +11,7 @@ const ROLE_COLOR = {
   student:  { color: "#4ade80", bg: "#4ade8018" },
 };
 
-const BLANK_AUTH    = { displayName: "", email: "", linkedTeacherId: "" };
+const BLANK_AUTH    = { displayName: "", email: "", alsoTeacher: false, instruments: [], commissionPct: 60 };   // alsoTeacher: an admin who also teaches
 const BLANK_TEACHER = { displayName: "", email: "", instruments: [], commissionPct: 60 };
 function blankForRole(role) {
   if (role === "teacher") return { ...BLANK_TEACHER };
@@ -78,7 +78,11 @@ export default function UserManagement({ teachers, enrolments, students, instrum
         commissionPct: profile?.commissionPct ?? 60,
       });
     } else {
-      setForm({ displayName: entry.displayName ?? "", email: "", linkedTeacherId: entry.teacherId ?? "" });
+      const profile = teachers.find(t => t.id === entry.teacherId);
+      setForm({
+        displayName: entry.displayName ?? "", email: "", alsoTeacher: !!profile,
+        instruments: profile?.instruments ?? [], commissionPct: profile?.commissionPct ?? 60,
+      });
     }
 
     setTransferConfirm(null);
@@ -101,7 +105,8 @@ export default function UserManagement({ teachers, enrolments, students, instrum
     const name  = form.displayName?.trim();
     const email = form.email?.trim().toLowerCase();
     if (!name || !email) { setError("Name and email are required."); return; }
-    if (formRole === "teacher" && (!form.instruments || form.instruments.length === 0)) {
+    const needsProfile = formRole === "teacher" || (formRole !== "teacher" && form.alsoTeacher);
+    if (needsProfile && (!form.instruments || form.instruments.length === 0)) {
       setError("Select at least one instrument."); return;
     }
 
@@ -113,13 +118,11 @@ export default function UserManagement({ teachers, enrolments, students, instrum
     try {
       let teacherId = null;
 
-      if (formRole === "teacher") {
-        // Reuse the existing teacher profile on transfer, otherwise create one
+      if (needsProfile) {
+        // Reuse the existing teacher profile on transfer, otherwise create one (admins can have one too: "Also a teacher")
         teacherId = await actions.saveTeacher(transferTarget?.teacherId ?? null, {
           name, instruments: form.instruments, commissionPct: form.commissionPct,
         });
-      } else {
-        teacherId = form.linkedTeacherId || null;
       }
 
       // Write invite to Firestore (no Firebase Auth account created)
@@ -170,7 +173,10 @@ export default function UserManagement({ teachers, enrolments, students, instrum
       : doc(db, "users",   editModal.id);
     // Anyone with the Teacher role must have a teacher profile, or they never appear in teacher pickers / payroll.
     let teacherId = editForm.teacherId || null;
-    if (editForm.role === "teacher" && !hasProfile(teacherId)) {
+    // An admin/sysadmin keeps a teacher profile only while "Also a teacher" is ticked
+    const alsoTeacher = editForm.role === "teacher" || (editForm.alsoTeacher ?? hasProfile(teacherId));
+    if (!alsoTeacher) teacherId = null;
+    if (alsoTeacher && !hasProfile(teacherId)) {
       if (!editForm.instruments?.length) { setError("Select at least one instrument for this teacher."); return; }
       try {
         teacherId = await actions.saveTeacher(null, {
@@ -248,6 +254,35 @@ export default function UserManagement({ teachers, enrolments, students, instrum
     });
 
   const isAdminOrSys = formRole === "admin" || formRole === "sysadmin";
+
+  // Instrument chips + default commission, shared by the "Also a teacher" sections
+  const teacherFields = (st, setSt) => (
+    <>
+      <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Instruments taught (creates their teacher profile)</div>
+      <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+        {instruments.map(inst => {
+          const active = st.instruments?.includes(inst);
+          return (
+            <button key={inst} type="button" onClick={() => {
+              setDirty?.(true);
+              setSt(f => ({ ...f, instruments: f.instruments?.includes(inst) ? f.instruments.filter(i => i !== inst) : [...(f.instruments ?? []), inst] }));
+            }} style={{
+              padding: "5px 12px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+              background: active ? T.accent + "22" : T.dim, color: active ? T.accent : T.muted, outline: active ? `1px solid ${T.accent}55` : "none",
+            }}>{inst}</button>
+          );
+        })}
+      </div>
+      <Inp T={T} label="Default Commission % (0–100)" type="number" min={0} max={100} value={st.commissionPct ?? 60}
+        onChange={e => { setDirty?.(true); setSt(f => ({ ...f, commissionPct: e.target.value })); }} />
+    </>
+  );
+  const alsoTeacherBox = (checked, onChange) => (
+    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, cursor: "pointer" }}>
+      <input type="checkbox" checked={checked} onChange={e => { setDirty?.(true); onChange(e.target.checked); }} />
+      Also a teacher <span style={{ fontSize: 11, color: T.muted }}>— still an admin; appears in teacher lists and Payroll</span>
+    </label>
+  );
   const fieldRow = { display: "flex", gap: 11, flexDirection: isMobile ? "column" : "row" };
 
   // Shared by the desktop table and the mobile card list
@@ -256,6 +291,8 @@ export default function UserManagement({ teachers, enrolments, students, instrum
     let emailCell = entry.email ?? "—";
     if (isStudent)        emailCell = entry.enrolmentSummary || "No active enrolment";
     if (isTeacherProfile) emailCell = `${entry.instruments?.join(", ") ?? "—"} · ${entry.commissionPct}% comm`;
+    const own = entry.role !== "teacher" && !isStudent && !isTeacherProfile && teachers.find(t => t.id === entry.teacherId);
+    if (own) emailCell = `${emailCell} · also teaches ${own.instruments?.join(", ") || "—"}`;
     return { isPending, isStudent, isTeacherProfile, emailCell, rc: ROLE_COLOR[entry.role] ?? { color: T.muted, bg: T.dim } };
   };
   const rowAvatar = (entry, { isPending, isStudent, isTeacherProfile }) =>
@@ -301,7 +338,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
       </div>
 
       {/* ── Create / Transfer Account ────────────────────────────────────────── */}
-      <Card T={T} style={{ marginBottom: 22, border: `0.6px solid ${T.border2}`, borderRadius: 12 }} ref={formCardRef}>
+      <Card T={T} spot="users.form" style={{ marginBottom: 22, border: `0.6px solid ${T.border2}`, borderRadius: 12 }} ref={formCardRef}>
 
         {transferTarget ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a2a1a", border: "1px solid #4ade8040", borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
@@ -321,7 +358,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
 
         <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
 
-          <Sel T={T} label="Role" value={formRole} onChange={e => handleRoleChange(e.target.value)} disabled={!!transferTarget}>
+          <Sel T={T} data-search="users.role" label="Role" value={formRole} onChange={e => handleRoleChange(e.target.value)} disabled={!!transferTarget}>
             <option value="admin">Admin</option>
             <option value="sysadmin">Sysadmin</option>
             <option value="teacher">Teacher</option>
@@ -345,6 +382,8 @@ export default function UserManagement({ teachers, enrolments, students, instrum
                   Note: not a @gmail.com address — Google Sign-In requires a Gmail account.
                 </div>
               )}
+              {alsoTeacherBox(!!form.alsoTeacher, v => setForm(f => ({ ...f, alsoTeacher: v })))}
+              {form.alsoTeacher && teacherFields(form, setForm)}
             </>
           )}
 
@@ -403,7 +442,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
           {success && <div style={{ fontSize: 12, color: "#4ade80", lineHeight: 1.6 }}>{success}</div>}
 
           <div style={{ display: "flex", gap: 9 }}>
-            <Btn T={T} onClick={createAccount} style={{ background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>
+            <Btn T={T} data-search="users.invite" onClick={createAccount} style={{ background: "#CB3CFF", color: "#fff", borderRadius: 4, padding: "8px 16px", fontSize: 12, fontWeight: 500, border: "none" }}>
               {saving ? "Saving…" : transferTarget ? "Create & Transfer" : "Create Invite"}
             </Btn>
             {transferTarget && <Btn T={T} variant="ghost" onClick={cancelTransfer}>Cancel Transfer</Btn>}
@@ -445,7 +484,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
         </div>
         <div style={{ position: "relative", width: isMobile ? "100%" : "auto" }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, pointerEvents: "none", color: T.muted }}>🔍</span>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email…"
+          <input data-search="users.search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email…"
             style={{ background: T.input, border: `0.6px solid ${T.border2}`, borderRadius: 6, color: T.text, padding: "7px 12px 7px 32px", fontSize: isMobile ? 16 : 12, outline: "none", fontFamily: "inherit", width: isMobile ? "100%" : 200, boxSizing: "border-box" }} />
         </div>
       </div>
@@ -478,7 +517,7 @@ export default function UserManagement({ teachers, enrolments, students, instrum
           {allRows.length === 0 && <div style={{ padding: "20px 14px", textAlign: "center", color: T.muted, fontSize: 13 }}>No users yet.</div>}
         </div>
       ) : (
-      <Card T={T} style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
+      <Card T={T} spot="users.table" style={{ padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <THead T={T} cols={["User", "Email / Details", "Role", "Status", "Actions"]} />
           <tbody>
@@ -599,6 +638,18 @@ export default function UserManagement({ teachers, enrolments, students, instrum
               <option value="admin">Admin</option>
               <option value="sysadmin">Sysadmin</option>
             </Sel>
+            {editForm.role !== "teacher" && (() => {
+              const linked = hasProfile(editForm.teacherId);
+              const also = editForm.alsoTeacher ?? linked;
+              return (
+                <>
+                  {alsoTeacherBox(also, v => setEditForm(f => ({ ...f, alsoTeacher: v })))}
+                  {also && !linked && teacherFields(editForm, setEditForm)}
+                  {also && linked && <div style={{ fontSize: 11, color: T.muted }}>Teacher profile linked. Edit its instruments and commission from the teacher's own row.</div>}
+                  {!also && linked && <div style={{ fontSize: 11, color: "#fbbf24" }}>Saving unlinks the teacher profile. The profile and its students stay; remove it from the list if it's no longer needed.</div>}
+                </>
+              );
+            })()}
             {editForm.role === "teacher" && !hasProfile(editForm.teacherId) && (
               <>
                 <div style={{ fontSize: 11, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Instruments (creates their teacher profile)</div>

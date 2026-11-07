@@ -43,11 +43,11 @@ export function calcLine({
   return { fee, discountAmount, net, scheduled, attended, gross, teacherCut, adminCut: gross - teacherCut, flatDeducted, afterFlat, dueFromStudent };
 }
 
-function countsForPeriod(enrolment, startYM, months, attendance) {
+function countsForPeriod(enrolment, startYM, months, attendance, calendar) {
   let scheduled = 0, attended = 0;
   for (let i = 0; i < months; i++) {
     const { year, month0 } = parseYM(addMonths(startYM, i));
-    scheduled += getScheduledCountForMonth(enrolment, year, month0);
+    scheduled += getScheduledCountForMonth(enrolment, year, month0, calendar);
     attended  += getAttendedCountForMonth(enrolment.id, year, month0, attendance);
   }
   return { scheduled, attended };
@@ -68,10 +68,10 @@ export function buildCollectionSnapshot(row) {
 
 /**
  * One payroll row for an enrolment in `ym`, or null if it isn't billable that month.
- * ctx: { ym, ledger, teachers, tables:{fees,contemporaryFees}, adminFlatFee, attendance }
+ * ctx: { ym, ledger, teachers, tables:{fees,contemporaryFees}, adminFlatFee, attendance, calendar }
  */
 export function buildEnrolmentRow(ctx, enrolment) {
-  const { ym, ledger = {}, teachers = [], tables = {}, adminFlatFee = 0, attendance = [] } = ctx;
+  const { ym, ledger = {}, teachers = [], tables = {}, adminFlatFee = 0, attendance = [], calendar } = ctx;
   const period = getBillingPeriod(enrolment, ym);
   if (!period.active) return null;
 
@@ -96,7 +96,7 @@ export function buildEnrolmentRow(ctx, enrolment) {
   const discountAmount = snap ? snap.discountAmount : calcDiscountAmount(fee, discount);
   const commissionPct  = snap?.commissionPct ?? resolveCommissionPct(enrolment, teacher);
   const flatFeePerMonth = snap?.adminFlatFee ?? adminFlatFee;
-  const { scheduled, attended } = countsForPeriod(enrolment, ym, period.months, attendance);
+  const { scheduled, attended } = countsForPeriod(enrolment, ym, period.months, attendance, calendar);
 
   const deferredToMonth     = entry.deferredToMonth ?? null;
   const deferredFromMonths  = entry.deferredFromMonths ?? [];

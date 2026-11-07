@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSearchIntent } from "../hooks/useSearchIntent.js";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { Card, Btn, Badge, Modal, Inp, Sel, Stat, ShakeBox } from "../components/UI.jsx";
@@ -30,7 +31,7 @@ function useNotificationArchive(enabled) {
  *   Notification Archive – every approved / rejected request, for reference.
  */
 export default function ArchiveView({
-  monthSnapshots, monthRevisions, teachers, students, enrolments, rooms, actions, currentUser, T, isMobile, setDirty,
+  monthSnapshots, monthRevisions, teachers, students, enrolments, rooms, actions, currentUser, T, isMobile, setDirty, intent,
 }) {
   const [tab, setTab]           = useState(currentUser.role === "teacher" ? "notifications" : "months");
   const [openYM, setOpenYM]     = useState(null);
@@ -47,6 +48,11 @@ export default function ArchiveView({
   const notifs = useNotificationArchive(tab === "notifications");
 
   const months = [...monthSnapshots].sort((a, b) => b.yearMonth.localeCompare(a.yearMonth));
+  useSearchIntent(intent, "archive", {
+    months: () => setTab("months"),
+    notifications: () => setTab("notifications"),
+    revise: () => { setTab("months"); setOpenYM(months[0]?.yearMonth ?? null); },
+  });
   const revsOf = ym => monthRevisions.filter(r => r.yearMonth === ym).sort((a, b) => b.revisionNo - a.revisionNo);
   const affectedBy = ym => monthRevisions.filter(r => (r.affectedMonths ?? []).includes(ym));
 
@@ -182,7 +188,7 @@ export default function ArchiveView({
 
             <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
               {isSys
-                ? <Btn T={T} variant="ghost" onClick={() => startRevise(snap)}>Revise this month</Btn>
+                ? <Btn T={T} data-search="archive.revise" variant="ghost" onClick={() => startRevise(snap)}>Revise this month</Btn>
                 : <span style={{ fontSize: 11, color: T.muted }}>Only a sysadmin can revise a finalized month.</span>}
             </div>
           </div>
@@ -306,15 +312,15 @@ export default function ArchiveView({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 10, flexWrap: "wrap" }}>
         <h2 style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: T.text, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Archive</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          {currentUser.role !== "teacher" && <Btn T={T} variant={tab === "months" ? "primary" : "ghost"} onClick={() => setTab("months")}>Finalized Months</Btn>}
-          <Btn T={T} variant={tab === "notifications" ? "primary" : "ghost"} onClick={() => setTab("notifications")}>Notification Archive</Btn>
+          {currentUser.role !== "teacher" && <Btn T={T} data-search="archive.months" variant={tab === "months" ? "primary" : "ghost"} onClick={() => setTab("months")}>Finalized Months</Btn>}
+          <Btn T={T} data-search="archive.notifications" variant={tab === "notifications" ? "primary" : "ghost"} onClick={() => setTab("notifications")}>Notification Archive</Btn>
         </div>
       </div>
 
       {tab === "months" && currentUser.role !== "teacher" && (
         <>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-            <Btn T={T} variant="ghost" style={{ fontSize: 11 }} onClick={backup}>Download full backup</Btn>
+            <Btn T={T} data-search="archive.backup" variant="ghost" style={{ fontSize: 11 }} onClick={backup}>Download full backup</Btn>
             {backupMsg && <span style={{ fontSize: 11, color: T.muted }}>{backupMsg}</span>}
           </div>
           {months.length === 0

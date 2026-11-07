@@ -14,6 +14,7 @@ import { newDeposit, collectDeposit, applyDeposit, forfeitDeposit, editDepositAm
 import { buildEnrolmentRow, buildCollectionSnapshot } from "../domain/payroll.js";
 import { getInstruments, findUnavailableInstrumentRefs } from "../domain/instruments.js";
 import { ymOfDate } from "../domain/time.js";
+import { buildCalendar, fifthKey, validateDayOverride, dayStatus } from "../domain/calendar.js";
 import { TODAY } from "../data/seed.js";
 
 const strip = ({ id, ...rest }) => rest; // never write the doc id into the doc body
@@ -40,6 +41,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   const rooms      = useCollection("rooms",            enabled);
   const attendance = useCollection("attendance",       enabled);
   const oneOffs    = useCollection("one_off_sessions", enabled);
+  const overrides  = useCollection("calendar_overrides", enabled);
   const discounts  = useCollection("discounts",        isAdmin);
   const snapshots  = useCollection("month_snapshots",  isAdmin);
   const revisions  = useCollection("month_revisions",  isAdmin);
@@ -50,6 +52,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     return onSnapshot(doc(db, "settings", "studio"), s => { if (s.exists()) setSettings(p => ({ ...p, ...s.data() })); }, () => {});
   }, [enabled]);
 
+  const calendar    = useMemo(() => buildCalendar(overrides.items), [overrides.items]);
   const tables      = useMemo(() => ({ fees, contemporaryFees }), [fees, contemporaryFees]);
   const instruments = useMemo(() => getInstruments(fees, contemporaryFees), [fees, contemporaryFees]);
 
@@ -157,7 +160,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
           outcome = { applied: false, reason: "The final month's fee is already marked collected. Un-collect it, then apply the deposit." };
         } else {
           const row = buildEnrolmentRow(
-            { ym: period.startYM, ledger, teachers: teachers.items, tables, adminFlatFee: settings.adminFlatFee, attendance: attendance.items },
+            { ym: period.startYM, ledger, teachers: teachers.items, tables, adminFlatFee: settings.adminFlatFee, attendance: attendance.items, calendar },
             enrolment,
           );
           const { deposit, plan } = applyDeposit(depSnap.data(), { finalFeeDue: row.net, yearMonth: period.startYM, by: actor.uid, at: serverTimestamp() });
@@ -326,6 +329,54 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   const updateOneOff = (id, patch) => updateDoc(doc(db, "one_off_sessions", id), patch);
   const deleteOneOff = id => deleteDoc(doc(db, "one_off_sessions", id));
 
+  // ── calendar overrides (public holidays, studio closures, 5th-week lessons) — admin only ──
+  const actorRef = () => ({ uid: actor.uid, name: actor.displayName || actor.email });
+  // Changing a day alters that month's scheduled-lesson counts, so a finalized month must be revised instead.
+  function assertMonthOpen(date) {
+    if (snapshots.items.some(s => s.yearMonth === date.slice(0, 7))) {
+      throw new Error(`${date.slice(0, 7)} is already finalized. A sysadmin can revise it from Archive.`);
+    }
+  }
+
+  /** status "open" = run classes on a public holiday; "closed" = add a studio closure (name required). */
+  async function setDayOverride(date, status, name = "") {
+    const errors = validateDayOverride({ date, status, name });
+    if (errors.length) throw new Error(errors.join(" "));
+    assertMonthOpen(date);
+    const before = dayStatus(date, calendar);
+    await setDoc(doc(db, "calendar_overrides", date), { kind: "day", date, status, name: name.trim(), by: actorRef(), at: serverTimestamp() });
+    await log({
+      type: "calendar", action: status === "open" ? "run" : "close", entity: { kind: "date", id: date },
+      summary: status === "open" ? `Classes will run on ${date} (${before.builtin})` : `Closed the studio on ${date}: ${name.trim()}`,
+    });
+  }
+
+  /** Remove an override: a public holiday closes again, a custom closure disappears. */
+  async function clearDayOverride(date) {
+    assertMonthOpen(date);
+    const before = dayStatus(date, calendar);
+    await deleteDoc(doc(db, "calendar_overrides", date));
+    await log({ type: "calendar", action: "clear", entity: { kind: "date", id: date }, summary: `Removed the calendar override on ${date}${before.builtin ? ` (${before.builtin})` : ""}` });
+  }
+
+  /** Run the 5th-week lesson of each listed enrolment on `date`. */
+  async function runFifthLessons(date, enrolmentIds) {
+    if (!enrolmentIds.length) return;
+    assertMonthOpen(date);
+    const batch = writeBatch(db);
+    enrolmentIds.forEach(id => batch.set(doc(db, "calendar_overrides", fifthKey(id, date)), { kind: "fifth", enrolmentId: id, date, by: actorRef(), at: serverTimestamp() }));
+    await batch.commit();
+    const names = enrolmentIds.map(id => nameOf(enrolments.items.find(e => e.id === id)?.studentId)).join(", ");
+    await log({ type: "calendar", action: "run-fifth", entity: { kind: "date", id: date }, summary: `Running the 5th-week lesson on ${date}: ${names}` });
+  }
+
+  async function clearFifthLesson(date, enrolmentId) {
+    assertMonthOpen(date);
+    await deleteDoc(doc(db, "calendar_overrides", fifthKey(enrolmentId, date)));
+    const e = enrolments.items.find(x => x.id === enrolmentId);
+    await log({ type: "calendar", action: "clear-fifth", entity: { kind: "date", id: date }, summary: `No class on ${date} for ${nameOf(e?.studentId)} (5th-week lesson restored)` });
+  }
+
   /**
    * Instruments that were removed from Grades & Fees may still be referenced by teachers, rooms or
    * enrolments. Replace those references with null / drop them (no fee, no duration) so nothing
@@ -425,13 +476,14 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     teachers: teachers.items, rooms: rooms.items, attendance: attendance.items,
     oneOffSessions: oneOffs.items, discounts: discounts.items,
     monthSnapshots: snapshots.items, monthRevisions: revisions.items,
-    adminFlatFee: settings.adminFlatFee, instruments, tables,
+    adminFlatFee: settings.adminFlatFee, instruments, tables, calendar,
     loaded: [students, enrolments, teachers, rooms].every(c => c.loaded),
     log,
     actions: {
       registerStudent, addEnrolment, saveStudent, updateEnrolment, stopEnrolment, applyDepositNow, removeStudent,
       collectDepositFor, editDepositFor, forfeitDepositFor, backfillDeposit,
       saveTeacher, removeTeacher, saveRoom, removeRoom,
+      setDayOverride, clearDayOverride, runFifthLessons, clearFifthLesson,
       setAttendance, addOneOff, updateOneOff, deleteOneOff,
       saveDiscount, deleteDiscount, setDiscountGrant, saveAdminFlatFee, finalizeMonth, saveRevision, cleanupInstruments,
       checkEnrolment, defaultDepositAmount: (e, ym) => defaultDepositAmount(e, ym, fees, contemporaryFees),

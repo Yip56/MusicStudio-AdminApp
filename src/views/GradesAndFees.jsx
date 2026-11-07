@@ -1,3 +1,4 @@
+import { useSearchIntent } from "../hooks/useSearchIntent.js";
 import { useState, useRef } from "react";
 import * as XLSX from "xlsx";
 import { Card, Btn, SectionTitle, Modal } from "../components/UI.jsx";
@@ -7,7 +8,7 @@ import { getInstruments, canDeleteInstrument, INSTRUMENT_IN_USE_MESSAGE } from "
 const DURATIONS = ["30", "45", "60"];
 const DEFAULT_CLASSICAL_ROW = { "30": 0, "45": 0, "60": 0 };
 
-export default function GradesAndFees({ fees, setFees, contemporaryFees, setContemporaryFees, saveFees, teachers = [], enrolments = [], students = [], T, isMobile, setDirty }) {
+export default function GradesAndFees({ fees, setFees, contemporaryFees, setContemporaryFees, saveFees, teachers = [], enrolments = [], students = [], T, isMobile, setDirty, intent }) {
   const [syllabus,      setSyllabus]      = useState("classical");
   const [feeInst,       setFeeInst]       = useState(() => getInstruments(fees, contemporaryFees)[0] ?? "");
   const [saveStatus,    setSaveStatus]    = useState("idle");   // idle | saving | saved | error
@@ -15,6 +16,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
   const [addingInst,    setAddingInst]    = useState(false);
   const [newInstName,   setNewInstName]   = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
+  useSearchIntent(intent, "grades", { instrument: name => { setFeeInst(name); setAddingInst(false); } });
   const [blocked,       setBlocked]       = useState(null);   // usage report when an instrument can't be deleted
 
   const fileInputRef = useRef(null);
@@ -248,11 +250,11 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
           Grades & Fees
         </h2>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
-          <Btn T={T} variant={syllabus === "classical"    ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("classical")}>Classical</Btn>
-          <Btn T={T} variant={syllabus === "contemporary" ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("contemporary")}>Contemporary</Btn>
-          <Btn T={T} variant={syllabus === "both"         ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("both")}>Both</Btn>
+          <Btn T={T} data-search="grades.classical" variant={syllabus === "classical"    ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("classical")}>Classical</Btn>
+          <Btn T={T} data-search="grades.contemporary" variant={syllabus === "contemporary" ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("contemporary")}>Contemporary</Btn>
+          <Btn T={T} data-search="grades.both" variant={syllabus === "both"         ? "primary" : "ghost"} style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}} onClick={() => setSyllabus("both")}>Both</Btn>
           <div style={{ width: 1, height: 24, background: T.border2, margin: "0 4px" }} />
-          <Btn T={T} variant={saveBtnVariant} disabled={saveStatus === "saving"} style={isMobile ? { padding: "7px 14px", fontSize: 12 } : {}} onClick={handleSave}>
+          <Btn T={T} data-search="grades.save" variant={saveBtnVariant} disabled={saveStatus === "saving"} style={isMobile ? { padding: "7px 14px", fontSize: 12 } : {}} onClick={handleSave}>
             {saveLabel}
           </Btn>
         </div>
@@ -261,10 +263,10 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
       {/* Excel import / export row */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 11, color: T.muted, marginRight: 4 }}>Excel:</span>
-        <Btn T={T} variant="ghost" style={{ fontSize: 12, padding: "6px 12px", gap: 5, display: "inline-flex", alignItems: "center", color: T.text }} onClick={downloadTemplate}>
+        <Btn T={T} data-search="grades.template" variant="ghost" style={{ fontSize: 12, padding: "6px 12px", gap: 5, display: "inline-flex", alignItems: "center", color: T.text }} onClick={downloadTemplate}>
           <DownloadIcon /> Download Template
         </Btn>
-        <Btn T={T}
+        <Btn T={T} data-search="grades.import"
           variant={importStatus === "error" ? "danger" : "ghost"}
           disabled={importStatus === "importing"}
           style={{
@@ -292,7 +294,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
       {/* Instrument selector */}
       <div style={{ display: "flex", gap: 7, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {instruments.map(i => (
-          <Btn key={i} T={T} variant={activeInst === i ? "primary" : "ghost"}
+          <Btn key={i} T={T} data-search={`grades.inst.${i}`} variant={activeInst === i ? "primary" : "ghost"}
             style={isMobile ? { padding: "7px 12px", fontSize: 12 } : {}}
             onClick={() => { setFeeInst(i); setAddingInst(false); }}>
             {i}
@@ -318,7 +320,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
             <Btn T={T} variant="ghost"   style={{ fontSize: 12, padding: "6px 10px" }} onClick={() => { setAddingInst(false); setNewInstName(""); }}>Cancel</Btn>
           </div>
         ) : (
-          <Btn T={T} variant="ghost"
+          <Btn T={T} data-search="grades.add-instrument" variant="ghost"
             style={{ fontSize: 12, padding: "6px 10px", color: T.muted }}
             onClick={() => setAddingInst(true)}>
             + Add
@@ -327,7 +329,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
 
         {/* Remove current instrument — pushed to right */}
         {instruments.length > 0 && !addingInst && (
-          <Btn T={T} variant="danger"
+          <Btn T={T} data-search="grades.remove" variant="danger"
             style={{ marginLeft: "auto", fontSize: 12, padding: "6px 12px" }}
             onClick={requestRemove}>
             Remove {activeInst}
@@ -377,7 +379,7 @@ export default function GradesAndFees({ fees, setFees, contemporaryFees, setCont
           </div>
         </Card>
       )}
-      {instruments.length > 0 && <Card T={T}>
+      {instruments.length > 0 && <Card T={T} spot="grades.table">
         {(syllabus === "classical" || syllabus === "both") && (
           <>
             {syllabus === "both" && <SectionTitle T={T}>Classical — {activeInst}</SectionTitle>}

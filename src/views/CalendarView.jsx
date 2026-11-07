@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
-import { Btn, Badge, Card, SectionTitle, Sel, Modal, ShakeBox } from "../components/UI.jsx";
+import { Btn, Badge, Card, SectionTitle, Sel, Inp, Modal, ShakeBox } from "../components/UI.jsx";
 import TimeSelect from "../components/TimeSelect.jsx";
 import { fmtDate, uid } from "../utils/helpers.js";
-import { getMergedSessionsForDate, roomSupportsInstrument, defaultMakeupSlot, findMakeupConflicts } from "../domain/enrolments.js";
+import { getMergedSessionsForDate, getHolidayName, getFifthWeekEnrolments, roomSupportsInstrument, defaultMakeupSlot, findMakeupConflicts } from "../domain/enrolments.js";
+import { dayStatus, fifthKey, listCalendarDays } from "../domain/calendar.js";
 import { timesOverlap, toMinutes, addMinutes } from "../domain/time.js";
 import { TODAY, STATUS_META, HOURS } from "../data/seed.js";
 
@@ -83,12 +84,21 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
         style={{
           background: T.panel,
           // A teacher's own classes get an accent outline so they stand out from other teachers' bookings.
-          border: highlightOwn ? `1.5px solid ${T.accent}` : `1px solid ${roomColor}40`,
-          borderLeft: `3px solid ${roomColor}`, borderRadius: 10, padding: "10px 12px",
+          border: sess.isDeferred ? `1px solid ${T.border}` : highlightOwn ? `1.5px solid ${T.accent}` : `1px solid ${roomColor}40`,
+          borderLeft: sess.isDeferred ? `3px solid ${T.border2}` : `3px solid ${roomColor}`,
+          borderRadius: 10, padding: sess.isDeferred ? "6px 12px" : "10px 12px",
           cursor: canMarkAttend ? "pointer" : "default",
           opacity: sess.status === "pending_approval" ? 0.75 : 1,
         }}
       >
+        {sess.isDeferred ? (
+          // Deferred class: one muted line (the make-up is where the class really happens). Click still opens it to undo.
+          <div title={`Deferred — make-up on ${sess.makeupDate}`} style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, opacity:0.5, filter:"saturate(0.3)" }}>
+            <span style={{ fontSize:10, fontWeight:700, color:T.muted, flexShrink:0, textDecoration:"line-through" }}>{sess.startTime}</span>
+            <span style={{ fontSize:11, color:T.muted, flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{displayName}</span>
+            <span style={{ fontSize:9, color:T.muted, flexShrink:0 }}>Deferred → {sess.makeupDate}</span>
+          </div>
+        ) : (<>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
           <span style={{ fontSize:11, fontWeight:700, color:roomColor }}>{sess.startTime} – {sess.endTime}</span>
           <div style={{ display:"flex", alignItems:"center", gap:5 }}>
@@ -108,6 +118,7 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
         </div>
         {isOwnSession && <div style={{ fontSize:11, color:T.muted }}>{teacher?.name ?? "—"}</div>}
         {sess.notes && isOwnSession && <div style={{ fontSize:10, color:T.muted, marginTop:3, fontStyle:"italic" }}>{sess.notes}</div>}
+        </>)}
       </div>
 
       {modalOpen && (
@@ -278,7 +289,7 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
 
 // ─── Main Calendar view ───────────────────────────────────────────────────────
 export default function CalendarView({
-  students, enrolments, teachers, rooms, attendance, actions,
+  students, enrolments, teachers, rooms, attendance, calendar, actions,
   oneOffSessions,
   deferrals, addDeferral, removeDeferral, updateDeferralStatus,
   T, currentUser, sendClashRequest, isMobile, setDirty,
@@ -298,10 +309,26 @@ export default function CalendarView({
   const [bookBusy,      setBookBusy]      = useState(false);
 
   const isTeacher  = currentUser?.role === "teacher";
+  const isAdmin    = currentUser?.role === "admin" || currentUser?.role === "sysadmin";
+  // An admin who also has a teacher profile can narrow the calendar to their own classes (still an admin: sees and edits everything otherwise)
+  const [myOnly, setMyOnly] = useState(false);
+  const canMyOnly = isAdmin && !!currentUser?.teacherId;
+  const mineOnly  = isTeacher || (canMyOnly && myOnly);
+
+  // Holiday / closure / 5th-week controls (admin only)
+  const [calError,   setCalError]   = useState(null);
+  const [calBusy,    setCalBusy]    = useState(false);
+  const [closeForm,  setCloseForm]  = useState(null);          // { name } while the day's "mark closed" form is open
+  const [addForm,    setAddForm]    = useState({ date: "", name: "" });
+  async function runCal(fn) {
+    setCalError(null); setCalBusy(true);
+    try { await fn(); } catch (e) { setCalError(e.message); }
+    setCalBusy(false);
+  }
 
   const daySessions = useMemo(
-    () => getMergedSessionsForDate(selDate, enrolments, attendance),
-    [selDate, enrolments, attendance]
+    () => getMergedSessionsForDate(selDate, enrolments, attendance, calendar),
+    [selDate, enrolments, attendance, calendar]
   );
 
   const allDaySessions = useMemo(() => {
@@ -355,13 +382,26 @@ export default function CalendarView({
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
       // Teachers see the badge count for their own classes only; the day view still shows every room's bookings.
-      const mine = x => !isTeacher || x.teacherId === currentUser.teacherId;
-      counts[dt] = getMergedSessionsForDate(dt, enrolments, attendance).filter(mine).length
+      const mine = x => !mineOnly || x.teacherId === currentUser.teacherId;
+      counts[dt] = getMergedSessionsForDate(dt, enrolments, attendance, calendar).filter(mine).length
         + (oneOffSessions ?? []).filter(s => s.date === dt && mine(s)).length
         + (deferrals ?? []).filter(d => d.makeupDate === dt && mine(d) && enrolments.some(e => e.id === d.enrolmentId)).length;
     }
     return counts;
-  }, [calYear, calMonth, enrolments, attendance, oneOffSessions, deferrals, isTeacher, currentUser?.teacherId]);
+  }, [calYear, calMonth, enrolments, attendance, calendar, oneOffSessions, deferrals, mineOnly, currentUser?.teacherId]);
+
+  // Dates in the shown month where someone's 5th lesson is off (teachers: their own students only)
+  const fifthWeekDates = useMemo(() => {
+    const set = new Set();
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (getHolidayName(dt, calendar)) continue;
+      if (getFifthWeekEnrolments(dt, enrolments, calendar)
+        .some(e => !calendar?.fifth?.[fifthKey(e.id, dt)] && (!mineOnly || e.teacherId === currentUser.teacherId))) set.add(dt);
+    }
+    return set;
+  }, [calYear, calMonth, enrolments, calendar, mineOnly, currentUser?.teacherId]);
 
   function handleStatusChange(sess, status) {
     if (sess.isMakeup) {
@@ -377,7 +417,7 @@ export default function CalendarView({
 
   // Everything occupying a given date (used to block make-ups on taken slots). Deferred originals free their slot.
   function getSessionsOn(date) {
-    const recurring = getMergedSessionsForDate(date, enrolments, attendance)
+    const recurring = getMergedSessionsForDate(date, enrolments, attendance, calendar)
       .filter(x => !(deferrals ?? []).some(d => d.enrolmentId === x.enrolmentId && d.originalDate === date));
     const makeups = (deferrals ?? [])
       .filter(d => d.makeupDate === date)
@@ -418,12 +458,12 @@ export default function CalendarView({
   // One bookable entry per live enrolment, so a two-instrument student is listed once per instrument
   const bookable = enrolments
     .filter(e => e.status !== "stopped" || (e.endDate && e.endDate >= TODAY))
-    .filter(e => !isTeacher || e.teacherId === currentUser.teacherId)
+    .filter(e => !mineOnly || e.teacherId === currentUser.teacherId)
     .map(e => ({ e, label: `${students.find(s => s.id === e.studentId)?.name ?? "?"} — ${e.instrument ?? "no instrument"}` }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
   function openBookModal(roomId) {
-    const defaultTeacherId = isTeacher ? currentUser.teacherId : (teachers[0]?.id ?? "");
+    const defaultTeacherId = isTeacher || canMyOnly ? currentUser.teacherId : (teachers[0]?.id ?? "");
     setBookForm({ enrolmentId: bookable[0]?.e.id ?? "", startTime: "09:00", endTime: "10:00", teacherId: defaultTeacherId });
     setBookModal({ roomId });
     setBookSuccess(false);
@@ -465,11 +505,18 @@ export default function CalendarView({
       return;
     }
 
-    // A booked room can still be requested from the other teacher (clash request flow)
+    // A booked room can still be requested from the other teacher (clash request flow) — teachers only.
+    // Admins have no one to ask: they are told to move or remove the clashing class first.
     const roomSessions = combinedSessions.filter(s => s.roomId === roomId);
     const clash = roomSessions.find(s =>
       timesOverlap(bookForm.startTime, bookForm.endTime, s.startTime, s.endTime)
     );
+    if (clash && isAdmin) {
+      const who = students.find(x => x.id === clash.studentId)?.name ?? "a student";
+      const by  = teachers.find(t => t.id === clash.teacherId)?.name ?? "another teacher";
+      blockBook(`${room?.name ?? "This room"} is already booked ${clash.startTime}–${clash.endTime} (${who}, ${by}). Move or remove that class before booking here.`);
+      return;
+    }
     const newSession = {
       id:        uid(),
       enrolmentId: bookForm.enrolmentId,
@@ -518,7 +565,7 @@ export default function CalendarView({
   }
 
   const MonthGrid = (
-    <Card T={T} style={{ padding: isMobile ? 12 : 16 }}>
+    <Card T={T} spot="calendar.month" style={{ padding: isMobile ? 12 : 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <Btn T={T} variant="ghost" style={{ padding: "4px 11px" }} onClick={prevMonth}>‹</Btn>
         <span style={{ fontWeight: 700, color: T.text, fontSize: 14 }}>
@@ -545,7 +592,7 @@ export default function CalendarView({
                 minHeight: isMobile ? 36 : 44, display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
                 transition: "background 0.1s"
               }}>
-              <span style={{ fontSize: isMobile ? 11 : 12, fontWeight: isSel || isToday ? 700 : 400, color: isSel ? T.accent : isToday ? T.accent + "cc" : T.text }}>{d}</span>
+              <span title={getHolidayName(dt, calendar) ?? (dayStatus(dt, calendar).overridden ? `${dayStatus(dt, calendar).builtin} (classes running)` : fifthWeekDates.has(dt) ? "5th week lesson" : undefined)} style={{ fontSize: isMobile ? 11 : 12, fontWeight: isSel || isToday ? 700 : 400, color: isSel ? T.accent : isToday ? T.accent + "cc" : getHolidayName(dt, calendar) ? "#FDB52A" : dayStatus(dt, calendar).overridden ? "#14CA74" : fifthWeekDates.has(dt) ? "#00C2FF" : T.text }}>{d}</span>
               {cnt > 0 && (
                 <span style={{ fontSize: 9, background: T.accent, color: T.onAccent, borderRadius: 99, padding: "1px 5px", fontWeight: 700 }}>{cnt}</span>
               )}
@@ -562,11 +609,92 @@ export default function CalendarView({
     .filter(s => !rooms.some(r => r.id === s.roomId))
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
+  // 5th lesson of the month is off, per student. Teachers only see their own students.
+  const fifthWeek = getFifthWeekEnrolments(selDate, enrolments, calendar)
+    .filter(e => !mineOnly || e.teacherId === currentUser.teacherId);
+  const fifthOff     = fifthWeek.filter(e => !calendar?.fifth?.[fifthKey(e.id, selDate)]);
+  const fifthRunning = fifthWeek.filter(e =>  calendar?.fifth?.[fifthKey(e.id, selDate)]);
+  const fifthLabel = e => `${students.find(s => s.id === e.studentId)?.name ?? "Student"} (${e.instrument ?? "class"} ${e.schedule.startTime})`;
+  const dayInfo = dayStatus(selDate, calendar);
+  const linkBtn = { background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit", padding: "0 0 0 8px" };
+
   const DayView = (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmtDate(selDate)}</span>
+        {canMyOnly && (
+          <label data-search="calendar.my-classes" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.muted, cursor: "pointer" }}>
+            <input type="checkbox" checked={myOnly} onChange={e => setMyOnly(e.target.checked)} /> My classes only
+          </label>
+        )}
+        {dayInfo.closed && (
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#FDB52A", background: "#FDB52A18", border: "1px solid #FDB52A55", borderRadius: 4, padding: "2px 8px" }}>
+            {dayInfo.source === "custom" ? "Closed" : "Public holiday"} · {dayInfo.name} · no classes
+          </span>
+        )}
+        {dayInfo.overridden && (
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#14CA74", background: "#14CA7418", border: "1px solid #14CA7455", borderRadius: 4, padding: "2px 8px" }}>
+            {dayInfo.builtin} · classes running
+          </span>
+        )}
+        {isAdmin && (
+          <span style={{ display: "inline-flex", gap: 6 }}>
+            {dayInfo.closed && dayInfo.source === "public" && (
+              <Btn T={T} data-search="calendar.run-holiday" variant="ghost" disabled={calBusy} style={{ padding: "3px 10px", fontSize: 11 }}
+                onClick={() => runCal(() => actions.setDayOverride(selDate, "open"))}>Run classes</Btn>
+            )}
+            {dayInfo.closed && dayInfo.source === "custom" && (
+              <Btn T={T} variant="ghost" disabled={calBusy} style={{ padding: "3px 10px", fontSize: 11 }}
+                onClick={() => runCal(() => actions.clearDayOverride(selDate))}>Remove closure</Btn>
+            )}
+            {dayInfo.overridden && (
+              <Btn T={T} variant="ghost" disabled={calBusy} style={{ padding: "3px 10px", fontSize: 11 }}
+                onClick={() => runCal(() => actions.clearDayOverride(selDate))}>Undo</Btn>
+            )}
+            {!dayInfo.closed && !dayInfo.overridden && !closeForm && (
+              <Btn T={T} data-search="calendar.close-day" variant="ghost" style={{ padding: "3px 10px", fontSize: 11 }}
+                onClick={() => setCloseForm({ name: "" })}>Mark day closed</Btn>
+            )}
+          </span>
+        )}
       </div>
+      {isAdmin && closeForm && !dayInfo.closed && (
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 12 }}>
+          <Inp T={T} label="Closure name" placeholder="e.g. Studio closed – flood" value={closeForm.name}
+            onChange={e => setCloseForm({ name: e.target.value })} />
+          <Btn T={T} disabled={calBusy} onClick={() => runCal(async () => { await actions.setDayOverride(selDate, "closed", closeForm.name); setCloseForm(null); })}>Close day</Btn>
+          <Btn T={T} variant="ghost" onClick={() => { setCloseForm(null); setCalError(null); }}>Cancel</Btn>
+        </div>
+      )}
+      {calError && <div style={{ color: "#FF5A65", fontSize: 12, marginBottom: 10 }}>{calError}</div>}
+      {fifthOff.length > 0 && !dayInfo.closed && (
+        <div style={{ marginBottom: 12, border: `1px solid #00C2FF55`, background: "#00C2FF12", borderRadius: 9, padding: "8px 10px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>
+            5th week lesson · no class
+            {isAdmin && fifthOff.length > 1 && (
+              <button style={linkBtn} disabled={calBusy}
+                onClick={() => runCal(() => actions.runFifthLessons(selDate, fifthOff.map(e => e.id)))}>Run all</button>
+            )}
+          </div>
+          {fifthOff.map(e => (
+            <div key={e.id} style={{ fontSize: 11, color: T.muted, padding: "2px 0" }}>
+              {fifthLabel(e)}
+              {isAdmin && <button style={linkBtn} disabled={calBusy} onClick={() => runCal(() => actions.runFifthLessons(selDate, [e.id]))}>Run</button>}
+            </div>
+          ))}
+        </div>
+      )}
+      {fifthRunning.length > 0 && !dayInfo.closed && (
+        <div style={{ marginBottom: 12, border: `1px solid #14CA7455`, background: "#14CA7412", borderRadius: 9, padding: "8px 10px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>5th week lesson · running</div>
+          {fifthRunning.map(e => (
+            <div key={e.id} style={{ fontSize: 11, color: T.muted, padding: "2px 0" }}>
+              {fifthLabel(e)}
+              {isAdmin && <button style={linkBtn} disabled={calBusy} onClick={() => runCal(() => actions.clearFifthLesson(selDate, e.id))}>Undo</button>}
+            </div>
+          ))}
+        </div>
+      )}
       {rooms.length === 0 && <p style={{ color: T.muted, fontSize: 13 }}>No rooms configured.</p>}
       {orphanSessions.length > 0 && (
         <div style={{ marginBottom: 14, border: `1px solid #FDB52A55`, background: "#FDB52A12", borderRadius: 9, padding: 10 }}>
@@ -636,7 +764,7 @@ export default function CalendarView({
                     </div>
                   );
                 })}
-                <button onClick={() => openBookModal(room.id)} style={{
+                <button data-search="calendar.book" onClick={() => openBookModal(room.id)} style={{
                   background: "none", border: `1px dashed ${T.border2}`, borderRadius: 9,
                   padding: "8px 10px", cursor: "pointer", fontSize: 11, color: T.muted,
                   fontFamily: "inherit", transition: "border-color 0.12s"
@@ -650,6 +778,37 @@ export default function CalendarView({
       </div>
     </div>
   );
+
+  const upcomingDays = listCalendarDays(calYear, calendar).filter(d => d.date >= TODAY); // passed ones are hidden
+  const HolidaysPanel = isAdmin && (
+    <Card T={T} style={{ padding: isMobile ? 12 : 16, marginTop: 14 }}>
+      <SectionTitle T={T}>Holidays & closures · {calYear}</SectionTitle>
+      <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>
+        Public holidays have no classes. Run a holiday to hold classes anyway, or add a closure of your own.
+      </div>
+      {upcomingDays.length === 0 && <div style={{ fontSize: 11, color: T.dim, padding: "6px 0" }}>No upcoming holidays or closures in {calYear}.</div>}
+      {upcomingDays.map(d => (
+        <div key={d.date} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `0.6px solid ${T.border}`, fontSize: 12 }}>
+          <button onClick={() => { setSelDate(d.date); setCalMonth(Number(d.date.slice(5, 7)) - 1); }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: T.text, fontFamily: "inherit", fontSize: 12, textAlign: "left", flex: 1, padding: 0 }}>
+            <span style={{ color: T.muted }}>{d.date.slice(5)} </span>{d.closed ? d.name : d.builtin}
+          </button>
+          <span style={{ fontSize: 10, fontWeight: 600, color: d.closed ? "#FDB52A" : "#14CA74" }}>{d.closed ? "Closed" : "Running"}</span>
+          <Btn T={T} variant="ghost" disabled={calBusy} style={{ padding: "2px 8px", fontSize: 10 }}
+            onClick={() => runCal(() => d.closed && d.source === "public" ? actions.setDayOverride(d.date, "open") : actions.clearDayOverride(d.date))}>
+            {d.closed && d.source === "public" ? "Run" : d.source === "custom" ? "Remove" : "Undo"}
+          </Btn>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginTop: 10, flexWrap: "wrap" }}>
+        <Inp T={T} label="Date" type="date" value={addForm.date} onChange={e => setAddForm(f => ({ ...f, date: e.target.value }))} />
+        <Inp T={T} label="Closure name" placeholder="e.g. Hari Raya" value={addForm.name} onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} />
+        <Btn T={T} disabled={calBusy}
+          onClick={() => runCal(async () => { await actions.setDayOverride(addForm.date, "closed", addForm.name); setAddForm({ date: "", name: "" }); })}>+ Add</Btn>
+      </div>
+    </Card>
+  );
+  const MonthSide = <div>{MonthGrid}{HolidaysPanel}</div>;
 
   const bookingModals = (
     <>
@@ -732,7 +891,7 @@ export default function CalendarView({
       <div>
         <h2 style={{ fontSize: 18, fontWeight: 800, color: T.text, marginBottom: 14 }}>Calendar</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {MonthGrid}
+          {MonthSide}
           {DayView}
         </div>
         {bookingModals}
@@ -745,7 +904,7 @@ export default function CalendarView({
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ fontSize: 22, fontWeight: 800, color: T.text }}>Calendar & Rooms</h2>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div data-search="calendar.views" style={{ display: "flex", gap: 6 }}>
           {[["both","Both"],["month","Month"],["day","Day"]].map(([id, label]) => (
             <Btn key={id} T={T} variant={viewMode === id ? "active" : "ghost"}
               style={{ padding: "6px 14px", fontSize: 12 }} onClick={() => setViewMode(id)}>{label}</Btn>
@@ -753,11 +912,11 @@ export default function CalendarView({
         </div>
       </div>
 
-      {viewMode === "month" && MonthGrid}
+      {viewMode === "month" && MonthSide}
       {viewMode === "day"   && DayView}
       {viewMode === "both"  && (
         <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16, alignItems: "start" }}>
-          <div>{MonthGrid}</div>
+          {MonthSide}
           <div>{DayView}</div>
         </div>
       )}
