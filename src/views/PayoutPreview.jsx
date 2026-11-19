@@ -19,6 +19,8 @@ export default function PayoutPreview({
   const paidAt = payoutStatus[teacher.id]?.paidAt;
 
   const [hoveredRow, setHoveredRow] = useState(null);
+  const [openRows, setOpenRows] = useState(() => new Set());   // mobile: expanded student rows
+  const toggleRow = id => setOpenRows(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const studentName = id => students.find(s => s.id === id)?.name ?? "Unknown student";
   // Finalized months are read from the frozen snapshot (latest revision if one exists)
@@ -379,8 +381,71 @@ export default function PayoutPreview({
           <p style={{ color: T.muted, fontSize: 13 }}>No students assigned to this teacher.</p>
         )}
 
+        {/* Mobile: one expandable row per student instead of a squeezed table */}
+        {myStudents.length > 0 && isMobile && (
+          <div style={{ border: `0.6px solid ${T.border2}`, borderRadius: 8, overflow: "hidden" }}>
+            {details.map((d, i) => {
+              const open = openRows.has(d.eid);
+              const field = (label, value) => (
+                <div>
+                  <div style={{ fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                  <div style={{ fontSize: 12, color: T.text, marginTop: 2 }}>{value}</div>
+                </div>
+              );
+              return (
+                <div key={d.eid} style={{ borderTop: i ? `0.6px solid ${T.border}` : "none" }}>
+                  <div
+                    role="button" tabIndex={0} aria-expanded={open}
+                    onClick={() => toggleRow(d.eid)}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleRow(d.eid); } }}
+                    style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 12px", cursor: "pointer", minHeight: 44, background: open ? T.panel2 : "transparent" }}
+                  >
+                    <span style={{ color: T.muted, fontSize: 11, width: 10, flexShrink: 0 }}>{open ? "▾" : "▸"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: T.text, fontWeight: 500, overflowWrap: "anywhere" }}>{d.name}</div>
+                      <div style={{ fontSize: 11, color: d.collected ? "#14CA74" : "#FDB52A" }}>
+                        {d.collected ? "Collected" : "Pending"}{d.enrolment.instrument ? <span style={{ color: T.muted }}> · {d.enrolment.instrument}</span> : null}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#60a5fa", flexShrink: 0 }}>
+                      {d.deferredToMonth ? "Deferred" : `RM ${d.teacherCut.toFixed(2)}`}
+                    </div>
+                  </div>
+                  {/* always visible, on the line under the student */}
+                  <div style={{ display: "flex", gap: 8, padding: "0 12px 12px 32px", background: open ? T.panel2 : "transparent" }}>
+                    <button data-search="payout.invoice" onClick={() => downloadPdf(d, "invoice")}
+                      style={{ flex: 1, padding: "9px 10px", borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 500, background: "rgba(203,60,255,0.12)", color: "#CB3CFF", border: "0.6px solid rgba(203,60,255,0.3)" }}>
+                      Invoice
+                    </button>
+                    <button data-search="payout.receipt" onClick={() => downloadPdf(d, "receipt")} disabled={!d.collected}
+                      style={{ flex: 1, padding: "9px 10px", borderRadius: 4, cursor: d.collected ? "pointer" : "not-allowed", opacity: d.collected ? 1 : 0.4, fontFamily: "inherit", fontSize: 12, fontWeight: 500, background: "rgba(20,202,116,0.12)", color: "#14CA74", border: "0.6px solid rgba(20,202,116,0.3)" }}>
+                      Receipt
+                    </button>
+                  </div>
+                  {open && (
+                    <div style={{ padding: "0 12px 14px 32px", background: T.panel2 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 12px" }}>
+                        {field("Grade", d.enrolment.grade)}
+                        {field("Type", d.enrolment.attendanceBased ? "Att. Based" : "Full Fee")}
+                        {field("Comm %", `${d.commissionPct}%`)}
+                        {field("Attendance", d.enrolment.attendanceBased ? `${d.attended}/${d.scheduled}` : "N/A")}
+                        {field("Gross", <>RM {d.gross.toFixed(2)}{d.discountAmount > 0 && <div style={{ fontSize: 10, color: "#4ade80" }}>−RM {d.discountAmount.toFixed(2)} discount</div>}</>)}
+                        {field("Collected", d.collected ? (d.collectedAt?.toDate ? d.collectedAt.toDate().toLocaleDateString("en-MY") : "Yes") : "Pending")}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "12px", borderTop: `0.6px solid ${T.border2}`, background: T.panel2 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.muted }}>Total Payout</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#CB3CFF" }}>RM {totalPayout.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
         {/* Table */}
-        {myStudents.length > 0 && (
+        {myStudents.length > 0 && !isMobile && (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
               <colgroup>

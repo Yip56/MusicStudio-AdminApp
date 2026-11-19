@@ -84,6 +84,15 @@ export default function App() {
   const { students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
           monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log } = studio;
 
+  // App stays mounted across sign-out / switch account, so drop the previous person's page and open panels
+  const uid = user?.uid ?? null;
+  useEffect(() => {
+    setView(null); setPayoutPreviewCtx(null); setFocusStudentId(null); setIntent(null);
+    setNotifOpen(false); setMoreOpen(false); setProfileOpen(false); setPaletteOpen(false);
+    setPendingNav(null); setDirty(false);
+    window.scrollTo?.(0, 0);
+  }, [uid]);
+
   // Theme -> CSS variables (hover/selection/solid fallbacks used by index.css) and the browser's status-bar colour
   useEffect(() => {
     const r = document.documentElement.style;

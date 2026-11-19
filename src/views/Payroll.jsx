@@ -675,6 +675,13 @@ export default function Payroll({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
                 <div style={{ fontSize: 11, color: T.muted }}>{summaryLine(row)}</div>
+                {isElevated && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }} onClick={e => e.stopPropagation()}>
+                    <Btn T={T} data-search="payroll.payout" variant="ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => openPayoutPreview(row.teacher, selY, selM)}>Pay Out</Btn>
+                    <Btn T={T} data-search="payroll.edit-teacher" variant="ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => openEditTeacher(row.teacher)}>Edit</Btn>
+                    <Btn T={T} data-search="payroll.remove-teacher" variant="danger" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => removeTeacher(row.teacher)}>Remove</Btn>
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: MONEY.blue }}>RM {row.totTeacher.toFixed(0)}</div>
