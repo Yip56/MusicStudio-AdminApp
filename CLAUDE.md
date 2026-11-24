@@ -331,8 +331,9 @@ Put it in `src/domain/` with a test next to it; call it from `useStudio` (writes
 
 ## Products (sold on the public website)
 
-- `products/{id}`: `name, description, category, price (number|null), status ("in_stock"|"sold_out"), published, images [{url, path}], createdAt, updatedAt`. Pure rules in `src/domain/products.js` (tested).
+- `products/{id}`: `name, description, category, price (number|null), stock (whole number|null — a number drives status: 0 → sold_out), status ("in_stock"|"sold_out"), published, images [{url, path}], createdAt, updatedAt`. Pure rules in `src/domain/products.js` (tested).
 - Admin/sysadmin manage them in the **Products** view (add/edit/hide/remove, up to 6 photos each, first photo = cover). Photos upload to Storage at `products/{id}/…`; `useStudio.saveProduct/removeProduct` own all writes and log to the activity log.
+- **Excel:** Products page has Download Template (exports current products) and Import Excel (`planProductImport` in `domain/products.js`: columns Name, Category, Price (RM), Stock, Description, On website; match by name → update, else create; blank cells keep the existing value; new category names are created automatically — categories are just the distinct `category` values). The import shows a preview and is written by `useStudio.importProducts` (batched, one activity-log entry, photos untouched).
 - The website never reads Firestore. It calls the `getPublicProducts` Cloud Function, which returns only products with `published == true` and only public fields. No payments: buyers contact the studio via WhatsApp.
 - A blank price shows "Contact us for price" on the website.
 - Deploy order: enable Storage in the Firebase console, then `firebase deploy --only firestore:rules,storage,functions`.

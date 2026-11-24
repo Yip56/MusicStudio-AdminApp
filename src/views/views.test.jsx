@@ -76,7 +76,7 @@ const count = (str, needle) => str.split(needle).length - 1;
 
 describe("ProductsView", () => {
   const products = [
-    { id: "p1", name: "Soprano Ukulele", category: "Ukuleles", price: 89.5, status: "in_stock", published: true, images: [{ url: "https://x/u.jpg", path: "products/p1/u.jpg" }] },
+    { id: "p1", name: "Soprano Ukulele", category: "Ukuleles", price: 89.5, stock: 12, status: "in_stock", published: true, images: [{ url: "https://x/u.jpg", path: "products/p1/u.jpg" }] },
     { id: "p2", name: "Guitar Picks", category: "Accessories", price: null, status: "sold_out", published: false, images: [] },
   ];
   it("lists products with price, website state and stock", () => {
@@ -87,6 +87,9 @@ describe("ProductsView", () => {
     expect(out).toContain("Hidden");
     expect(out).toContain("Sold out");
     expect(out).toContain("No price");
+    expect(out).toContain("12 in stock");
+    expect(out).toContain("Import Excel");
+    expect(out).toContain("Accessories");
   });
   it("shows an empty state", () => {
     expect(html(ProductsView, { products: [] })).toContain("No products yet");

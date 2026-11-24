@@ -364,7 +364,32 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     await log({
       type: "product", action: id ? "update" : "create",
       summary: `${id ? "Edited" : "Added"} product ${body.name}`, entity: { kind: "product", id: docRef.id },
-      changes: id ? diffFields(prev, body, ["name", "description", "category", "price", "status", "published"]) : [],
+      changes: id ? diffFields(prev, body, ["name", "description", "category", "price", "stock", "status", "published"]) : [],
+    });
+  }
+
+  /**
+   * Bulk create/update from an Excel plan (`planProductImport(...).items`, all error-free).
+   * Photos of updated products are untouched. Written in batches of 400, logged as one entry.
+   */
+  async function importProducts(items) {
+    const bad = items.find(i => i.errors?.length);
+    if (bad) throw new Error(bad.errors[0]);
+    if (!items.length) throw new Error("Nothing to import.");
+    for (let i = 0; i < items.length; i += 400) {
+      const batch = writeBatch(db);
+      items.slice(i, i + 400).forEach(it => {
+        const body = normalizeProduct(it.data);
+        const ref = it.id ? doc(db, "products", it.id) : doc(collection(db, "products"));
+        batch.set(ref, { ...body, ...(it.id ? {} : { images: [], createdAt: serverTimestamp() }), updatedAt: serverTimestamp() }, { merge: true });
+      });
+      await batch.commit();
+    }
+    const created = items.filter(i => !i.id).length;
+    await log({
+      type: "product", action: "import",
+      summary: `Imported products from Excel: ${created} new, ${items.length - created} updated`,
+      entity: { kind: "product", id: null },
     });
   }
 
@@ -542,7 +567,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     actions: {
       registerStudent, addEnrolment, saveStudent, updateEnrolment, stopEnrolment, applyDepositNow, removeStudent,
       collectDepositFor, editDepositFor, forfeitDepositFor, backfillDeposit,
-      saveTeacher, removeTeacher, saveRoom, removeRoom, saveProduct, removeProduct,
+      saveTeacher, removeTeacher, saveRoom, removeRoom, saveProduct, removeProduct, importProducts,
       setDayOverride, clearDayOverride, runFifthLessons, clearFifthLesson,
       setAttendance, addOneOff, updateOneOff, deleteOneOff,
       saveDiscount, deleteDiscount, setDiscountGrant, saveAdminFlatFee, finalizeMonth, saveRevision, cleanupInstruments,
