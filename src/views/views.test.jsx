@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-vi.mock("../firebase.js", () => ({ db: {}, auth: {}, googleProvider: {}, app: {} }));
+vi.mock("../firebase.js", () => ({ db: {}, auth: {}, googleProvider: {}, app: {}, storage: {} }));
 
 import { getTokens } from "../utils/tokens.js";
 import { TODAY } from "../data/seed.js";
@@ -13,6 +13,7 @@ import CalendarView from "./CalendarView.jsx";
 import Payroll from "./Payroll.jsx";
 import GradesAndFees from "./GradesAndFees.jsx";
 import RoomsView from "./RoomsView.jsx";
+import ProductsView from "./ProductsView.jsx";
 import DiscountsView from "./DiscountsView.jsx";
 import ArchiveView from "./ArchiveView.jsx";
 import ActivityLogView from "./ActivityLogView.jsx";
@@ -73,6 +74,25 @@ const base = {
 const html = (C, props = {}) => renderToStaticMarkup(<C {...base} {...props} />);
 const count = (str, needle) => str.split(needle).length - 1;
 
+describe("ProductsView", () => {
+  const products = [
+    { id: "p1", name: "Soprano Ukulele", category: "Ukuleles", price: 89.5, status: "in_stock", published: true, images: [{ url: "https://x/u.jpg", path: "products/p1/u.jpg" }] },
+    { id: "p2", name: "Guitar Picks", category: "Accessories", price: null, status: "sold_out", published: false, images: [] },
+  ];
+  it("lists products with price, website state and stock", () => {
+    const out = html(ProductsView, { products });
+    expect(out).toContain("Soprano Ukulele");
+    expect(out).toContain("RM 89.50");
+    expect(out).toContain("On website");
+    expect(out).toContain("Hidden");
+    expect(out).toContain("Sold out");
+    expect(out).toContain("No price");
+  });
+  it("shows an empty state", () => {
+    expect(html(ProductsView, { products: [] })).toContain("No products yet");
+  });
+});
+
 describe("views render with realistic data", () => {
   it("Students: a two-instrument student gets one row per instrument", () => {
     const out = html(Students);
@@ -122,15 +142,21 @@ describe("views render with realistic data", () => {
     expect(out).toContain("Occupied");
   });
 
-  it("Payroll: one two-row entry per enrolment, with Collection column and Finalize button", () => {
-    const out = html(Payroll);
-    expect(count(out, "Mia Tan")).toBe(2);
-    expect(out).toContain("Collection");
-    expect(out).toContain("Duration");
-    expect(out).toContain("Finalize Month");
-    expect(out).toContain("Deposits Held");
-    expect(out).toContain("Discount");
-    expect(out).toContain("Defer payout");
+  it("Payroll: teachers are listed collapsed; clicking one opens a pop-up with every student and control", () => {
+    const list = html(Payroll);
+    expect(list).toContain("Ms Lin");
+    expect(list).toContain("Mr Osei");
+    expect(list).toContain("Finalize Month");
+    expect(list).toContain("Deposits Held");
+    expect(list).not.toContain("Mia Tan");            // students live in the pop-up now
+    expect(list).not.toContain("Defer payout");
+
+    const out = html(Payroll, { intent: { page: "payroll", id: "payroll.teacher.t1", nonce: 1 } });
+    expect(out).toContain('role="dialog"');
+    expect(count(out, "Mia Tan")).toBe(1);            // Ms Lin teaches Mia's piano only
+    expect(out).toContain("Noah Lee");
+    expect(out).not.toContain("Mr Osei's");
+    for (const label of ["Collect", "Discount", "Defer payout", "Pay Out", "Edit"]) expect(out).toContain(label);
   });
 
   it("Payroll: teacher instrument picker only offers instruments from Grades & Fees", () => {
@@ -182,7 +208,7 @@ describe("views render with realistic data", () => {
       gross: 160, teacherCut: 93, adminCut: 67, flatDeducted: 5, dueFromStudent: 160,
     };
     const snap = { id: ym, yearMonth: ym, rows: [row], totals: { gross: 160, teacher: 93, admin: 67 }, counts: { total: 1, collected: 1 }, finalizedBy: { name: "Ann" } };
-    const out = html(Payroll, { monthSnapshots: [snap] });
+    const out = html(Payroll, { monthSnapshots: [snap], intent: { page: "payroll", id: "payroll.teacher.t1", nonce: 1 } });
     expect(out).toContain("Finalized");
     expect(out).not.toContain("Finalize Month");
     expect(count(out, "Mia Tan")).toBe(1); // only the snapshot row, not the live enrolments

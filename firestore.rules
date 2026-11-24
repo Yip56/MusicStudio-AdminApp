@@ -128,6 +128,9 @@ service cloud.firestore {
     }
     match /teachers/{id}   { allow read: if isStaff(); allow write: if isAdminOrAbove(); }
     match /rooms/{id}      { allow read: if isStaff(); allow write: if isAdminOrAbove(); }
+    // Products for sale. Admin-only here; the public website reads published ones through the
+    // getPublicProducts Cloud Function (admin SDK), never directly.
+    match /products/{id}   { allow read, write: if isAdminOrAbove(); }
     match /discounts/{id}  { allow read: if isAdminOrAbove(); allow write: if isAdminOrAbove(); }
     match /settings/{id}   { allow read: if isStaff(); allow write: if isAdminOrAbove(); }
 

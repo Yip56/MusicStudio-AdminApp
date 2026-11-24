@@ -15,6 +15,7 @@ export const AUDIT_TYPES = {
   month:        "Month",
   notification: "Notification",
   room:         "Room",
+  product:      "Product",
   teacher:      "Teacher",
   instrument:   "Instrument",
   settings:     "Settings",

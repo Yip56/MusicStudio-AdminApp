@@ -80,40 +80,18 @@ export default function Payroll({
 
   const orphanRows = rows.filter(r => !teachers.some(t => t.id === r.teacherId));
 
-  // ── expandable teacher tables ───────────────────────────────────────────────
-  // Desktop: open unless the user closed it. Mobile: closed unless the teacher still has fees to collect.
-  // Explicit toggles are remembered per browser; the "needs work" default is sticky within a session so a card
-  // does not fold up under your finger when you tick its last fee.
-  const [openPref, setOpenPref] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("payroll.teacherOpen")) ?? {}; } catch { return {}; }
-  });
-  const stickyOpen = useRef(new Set());
+  // ── teacher details pop-up ──────────────────────────────────────────────────
+  // Clicking a teacher opens a modal with all of their students and every control (collect, discount, defer, pay out, edit).
+  // starts open when arriving from quick search (intent is set before this page mounts)
+  const [modalTeacherId, setModalTeacherId] = useState(() => /^payroll\.teacher\.(.+)$/.exec(intent?.page === "payroll" ? intent.id ?? "" : "")?.[1] ?? null);
   const feeRowsOf = row => row.details.filter(d => !d.covered);
   const toCollect = row => finalized ? 0 : feeRowsOf(row).filter(d => !d.collected).length;
-  const isOpen = row => {
-    const id = row.teacher.id, key = `${yearMonth}:${id}`;
-    if (openPref[id] !== undefined) return openPref[id];
-    if (!isMobile) return true;
-    if (toCollect(row) > 0) stickyOpen.current.add(key);
-    return stickyOpen.current.has(key);
-  };
-  const setOpen = (id, v) => setOpenPref(p => {
-    const n = { ...p, [id]: v };
-    try { localStorage.setItem("payroll.teacherOpen", JSON.stringify(n)); } catch { /* private mode: just do not remember */ }
-    return n;
-  });
-  // Quick search is about to highlight something inside a card: open it first (not remembered)
+  // Quick search: open the teacher it points at (or the first one for a generic fee control)
   useEffect(() => {
     if (intent?.page !== "payroll" || !intent.id) return;
     const m = /^payroll\.teacher\.(.+)$/.exec(intent.id);
-    if (m) stickyOpen.current.add(`${yearMonth}:${m[1]}`);
-    else if (/^payroll\.(collect|defer|discount|table)$/.test(intent.id)) teachers.forEach(t => stickyOpen.current.add(`${yearMonth}:${t.id}`));
-    else return;
-    setOpenPref(p => {
-      const n = { ...p };
-      (m ? [m[1]] : teachers.map(t => t.id)).forEach(id => { if (n[id] === false) delete n[id]; });
-      return n;
-    });
+    if (m) setModalTeacherId(m[1]);
+    else if (/^payroll\.(collect|defer|discount|table)$/.test(intent.id) && shown[0]) setModalTeacherId(shown[0].teacher.id);
   }, [intent?.nonce]);   // eslint-disable-line react-hooks/exhaustive-deps
   const summaryLine = row => {
     const fee = feeRowsOf(row), n = toCollect(row);
@@ -124,11 +102,11 @@ export default function Payroll({
       </span>
     );
   };
-  const chevron = open => <span aria-hidden style={{ display: "inline-block", width: 14, fontSize: 12, color: T.muted, transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none" }}>▸</span>;
+  const chevron = () => <span aria-hidden style={{ display: "inline-block", width: 14, fontSize: 12, color: T.muted }}>▸</span>;
   const toggleProps = row => ({
-    role: "button", tabIndex: 0, "aria-expanded": isOpen(row),
-    onClick: () => setOpen(row.teacher.id, !isOpen(row)),
-    onKeyDown: e => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); setOpen(row.teacher.id, !isOpen(row)); } },
+    role: "button", tabIndex: 0,
+    onClick: () => setModalTeacherId(row.teacher.id),
+    onKeyDown: e => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); setModalTeacherId(row.teacher.id); } },
   });
 
   // ── actions ────────────────────────────────────────────────────────────────
@@ -165,20 +143,54 @@ export default function Payroll({
     dragRef.current = d; setDrag({ ...d });
   };
   useEffect(() => {
-    const over = e => {
+    let lastY = null, raf = 0;
+    const select = y => {
       const d = dragRef.current; if (!d) return;
       // The invisible rectangle is the dragging teacher's own table: only that table's rows are ever
       // considered, so a drag can never reach another teacher. Pointer outside it clamps to its first/last row.
       const zone = document.querySelector(`[data-collect-zone="${d.teacherId}"]`); if (!zone) return;
       const els = [...zone.querySelectorAll("[data-collect-row]")];
       const a = els.findIndex(el => el.dataset.collectRow === d.anchor); if (a < 0) return;
-      let i = els.findIndex(el => { const b = el.getBoundingClientRect(); return e.clientY >= b.top && e.clientY <= b.bottom; });
-      if (i < 0) i = e.clientY < els[0].getBoundingClientRect().top ? 0 : els.length - 1;
+      let i = els.findIndex(el => { const b = el.getBoundingClientRect(); return y >= b.top && y <= b.bottom; });
+      if (i < 0) i = y < els[0].getBoundingClientRect().top ? 0 : els.length - 1;
       const ids = new Set(els.slice(Math.min(a, i), Math.max(a, i) + 1).map(el => el.dataset.collectRow));
       if (ids.size === d.ids.size && [...ids].every(x => d.ids.has(x))) return;
       d.ids = ids; setDrag({ ...d });
     };
+    // Nearest scrollable ancestor (the modal/panel body), or null for the page itself
+    const scroller = el => {
+      for (let n = el?.parentElement; n && n !== document.body; n = n.parentElement) {
+        const oy = getComputedStyle(n).overflowY;
+        if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight) return n;
+      }
+      return null;
+    };
+    // While the pointer is held within EDGE px of the top/bottom of the scroll area, keep scrolling
+    // (faster the closer to / past the edge) and re-select rows under the stationary pointer.
+    const EDGE = 60, MAX = 18;
+    const tick = () => {
+      raf = 0;
+      const d = dragRef.current; if (!d || lastY == null) return;
+      const zone = document.querySelector(`[data-collect-zone="${d.teacherId}"]`);
+      const sc = scroller(zone);
+      const top = sc ? sc.getBoundingClientRect().top : 0;
+      const bottom = sc ? sc.getBoundingClientRect().bottom : window.innerHeight;
+      let dy = 0;
+      if (lastY < top + EDGE) dy = -Math.min(MAX, ((top + EDGE - lastY) / EDGE) * MAX);
+      else if (lastY > bottom - EDGE) dy = Math.min(MAX, ((lastY - (bottom - EDGE)) / EDGE) * MAX);
+      if (dy) {
+        if (sc) sc.scrollTop += dy; else window.scrollBy(0, dy);
+        select(lastY);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    const over = e => {
+      if (!dragRef.current) return;
+      lastY = e.clientY; select(lastY);
+      if (!raf) raf = requestAnimationFrame(tick);
+    };
     const up = () => {
+      cancelAnimationFrame(raf); raf = 0; lastY = null;
       const d = dragRef.current; if (!d) return;
       dragRef.current = null; setDrag(null);
       const picked = rows.filter(r => d.ids.has(r.eid) && !r.covered && r.collected !== d.target);
@@ -259,10 +271,6 @@ export default function Payroll({
       await actions.saveTeacher(teacherModal.id, form);
       setTeacherModal(null); setDirty?.(false);
     });
-  }
-  function removeTeacher(t) {
-    if (!confirm(`Remove ${t.name}?`)) return;
-    return run(() => actions.removeTeacher(t.id));
   }
   function toggleInstrument(inst) {
     setDirty?.(true);
@@ -345,8 +353,7 @@ export default function Payroll({
     );
   };
 
-  const COLLECT_SIZE = 52;   // desktop button height (about a student row)
-  const COLLECT_W = 96;      // desktop button width — the defer tab underneath matches it
+  const COLLECT_SIZE = 52;   // default collect button size
 
   // Big square collect button (tap to toggle, drag over several to set them all)
   const collectBtn = (r, size = COLLECT_SIZE, width = size) => {
@@ -388,14 +395,6 @@ export default function Payroll({
     );
   };
 
-  // mobile: button + status side by side
-  const collectionTop = r => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      {collectInfo(r)}
-      {collectBtn(r, 44)}
-    </div>
-  );
-
   const deferControls = r => {
     if (!isElevated || r.covered) return null;
     if (r.deferredToMonth) return (
@@ -427,35 +426,6 @@ export default function Payroll({
     );
   };
 
-  // desktop: small tab hanging from the bottom edge of the collect button
-  const deferTab = r => {
-    if (!isElevated || r.covered) return null;
-    const tab = { position: "absolute", top: COLLECT_SIZE + 6, right: 0, width: COLLECT_W, boxSizing: "border-box", justifyContent: "center", zIndex: 3, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5 };
-    if (r.deferredToMonth) return (
-      <div data-search="payroll.defer" style={{ ...tab, background: T.panel, borderRadius: 4 }}>
-        <Badge label={`→ ${formatYM(r.deferredToMonth)}`} color="#FDB52A" bg="rgba(253,181,42,0.12)" border="rgba(253,181,42,0.3)" />
-        {!finalized && <button onClick={() => handleUndefer(r)} style={{ fontSize: 9, color: T.muted, background: "transparent", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>Undo</button>}
-      </div>
-    );
-    if (finalized) return null;
-    if (deferOpen[r.eid]) return (
-      <div data-search="payroll.defer" style={{ ...tab, width: "auto", minWidth: COLLECT_W, background: T.panel, border: `0.6px solid ${T.border2}`, borderRadius: 6, padding: "3px 5px" }}>
-        <select value={deferTarget[r.eid] ?? monthOpts[0].value} onChange={e => setDeferTarget(p => ({ ...p, [r.eid]: e.target.value }))}
-          style={{ background: T.input, color: T.text, border: `0.6px solid ${T.border2}`, borderRadius: 4, padding: "2px 5px", fontSize: 10, fontFamily: "inherit", outline: "none", maxWidth: 120 }}>
-          {monthOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <Btn T={T} style={{ padding: "2px 8px", fontSize: 9 }} onClick={() => handleDefer(r)}>OK</Btn>
-        <button onClick={() => setDeferOpen(p => ({ ...p, [r.eid]: false }))} style={{ fontSize: 9, color: T.muted, background: "transparent", border: "none", cursor: "pointer", padding: 0, fontFamily: "inherit" }}>✕</button>
-      </div>
-    );
-    return (
-      <button data-search="payroll.defer" onClick={() => setDeferOpen(p => ({ ...p, [r.eid]: true }))}
-        style={{ ...tab, fontSize: 9, fontWeight: 600, color: T.text, background: T.panel2, border: `0.6px solid ${T.border2}`, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontFamily: "inherit" }}>
-        Defer payout →
-      </button>
-    );
-  };
-
   // ── modals ─────────────────────────────────────────────────────────────────
   const teacherForm = teacherModal && isElevated && (
     <Modal T={T} spot="payroll.edit-teacher.form" title="Edit Teacher" onClose={() => { setTeacherModal(null); setDirty?.(false); }}>
@@ -480,6 +450,10 @@ export default function Payroll({
           onChange={e => { setDirty?.(true); setForm(f => ({ ...f, commissionPct: e.target.value })); }} />
         <div style={{ fontSize: 11, color: T.muted }}>Individual enrolments can override this rate from the Students page.</div>
         {error && <ShakeBox shake={errShake} style={errBox}>{error}</ShakeBox>}
+        <Btn T={T} data-search="payroll.remove-teacher" variant="danger" disabled={busy}
+          onClick={() => run(async () => { if (!confirm(`Remove ${teacherModal.name}?`)) return; await actions.removeTeacher(teacherModal.id); setTeacherModal(null); setDirty?.(false); })}>
+          Remove teacher profile
+        </Btn>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 9, marginTop: 4 }}>
           <Btn T={T} variant="ghost" onClick={() => { setTeacherModal(null); setDirty?.(false); }}>Cancel</Btn>
           <Btn T={T} disabled={busy} onClick={saveTeacher}>Save Changes</Btn>
@@ -623,10 +597,14 @@ export default function Payroll({
     </div>
   );
 
+  const paidBadge = row => payoutStatus[row.teacher.id]?.paid
+    ? <Badge label={`Paid ${payoutStatus[row.teacher.id].paidAt?.toDate?.().toLocaleDateString("en-MY", { day: "numeric", month: "short" }) ?? ""}`} color="#14CA74" bg="rgba(5,193,104,0.2)" border="rgba(5,193,104,0.5)" />
+    : <Badge label="Unpaid" color="#FDB52A" bg="rgba(255,176,22,0.2)" border="rgba(255,176,22,0.2)" />;
+
   const teacherHeader = row => (
-    <div data-search={`payroll.teacher.${row.teacher.id}`} {...toggleProps(row)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: isOpen(row) ? `0.6px solid ${T.border}` : "none", gap: 10, flexWrap: "wrap", cursor: "pointer" }}>
+    <div data-search={`payroll.teacher.${row.teacher.id}`} {...toggleProps(row)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 10, flexWrap: "wrap", cursor: "pointer" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {chevron(isOpen(row))}
+        {chevron()}
         <Avatar name={row.teacher.name} size={34} />
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
@@ -634,25 +612,85 @@ export default function Payroll({
           <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{summaryLine(row)}</div>
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 14 }} onClick={e => { if (e.target.closest("button")) e.stopPropagation(); }}>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: MONEY.blue }}>{rm(row.totTeacher)}</div>
-            {payoutStatus[row.teacher.id]?.paid
-              ? <Badge label={`Paid ${payoutStatus[row.teacher.id].paidAt?.toDate?.().toLocaleDateString("en-MY", { day: "numeric", month: "short" }) ?? ""}`} color="#14CA74" bg="rgba(5,193,104,0.2)" border="rgba(5,193,104,0.5)" />
-              : <Badge label="Unpaid" color="#FDB52A" bg="rgba(255,176,22,0.2)" border="rgba(255,176,22,0.2)" />}
-          </div>
-          {isElevated && <div style={{ fontSize: 11, color: T.muted }}>Admin: {rm(row.totAdmin)}</div>}
+      <div style={{ textAlign: "right" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: MONEY.blue }}>{rm(row.totTeacher)}</div>
+          {paidBadge(row)}
         </div>
-        {isElevated && !isMobile && (
-          <>
-            <Btn T={T} data-search="payroll.payout" variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openPayoutPreview(row.teacher, selY, selM)}>Pay Out</Btn>
-            <Btn T={T} data-search="payroll.edit-teacher" variant="ghost" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => openEditTeacher(row.teacher)}>Edit</Btn>
-            <Btn T={T} data-search="payroll.remove-teacher" variant="danger" style={{ padding: "5px 11px", fontSize: 11 }} onClick={() => removeTeacher(row.teacher)}>Remove</Btn>
-          </>
-        )}
+        {isElevated && <div style={{ fontSize: 11, color: T.muted }}>Admin: {rm(row.totAdmin)}</div>}
       </div>
     </div>
+  );
+
+  // one student inside the pop-up: every detail and control that used to live in the table row
+  const sub = { fontSize: 10, color: T.muted };
+  const studentRow = d => (
+    <div key={d.eid} data-collect-row={d.eid} style={{ borderTop: `0.6px solid ${T.border}`, padding: "12px 0", opacity: d.covered ? 0.7 : 1 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, color: T.text, fontWeight: 600, overflowWrap: "anywhere" }}>{nameFor(d)}</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>
+            {d.enrolment.instrument ?? "No longer offered"} · {d.enrolment.syllabus === "contemporary" ? "Contemporary" : "Classical"} · {d.enrolment.grade} · {d.enrolment.schedule?.duration ?? "?"} min · {TERM_LABEL[d.period.term]?.split(" ")[0] ?? ""}
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 18, flexWrap: "wrap", marginTop: 8 }}>
+            <div><div style={sub}>Type</div><div style={{ marginTop: 2 }}>{typeBadge(d)}</div></div>
+            <div><div style={sub}>Fee</div>{feeCell(d)}</div>
+            <div>
+              <div style={sub}>Gross</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: MONEY.green }}>{rm(d.gross)}</div>
+              {d.deferredGrossExtra > 0 && <div style={{ fontSize: 9, color: MONEY.purple }}>+{rm(d.deferredGrossExtra)} deferred in</div>}
+            </div>
+            <div>
+              <div style={sub}>Teacher{!d.covered && ` · ${d.commissionPct}%`}</div>
+              {d.deferredToMonth ? <div style={{ fontSize: 12, fontWeight: 600, color: MONEY.amber }}>Deferred</div> : <div style={{ fontSize: 12, fontWeight: 700, color: MONEY.blue }}>{rm(d.teacherCut)}</div>}
+            </div>
+            {isElevated && (
+              <div>
+                <div style={sub}>Admin</div>
+                <div style={{ fontSize: 12, color: d.deferredToMonth ? T.muted : MONEY.violet }}>
+                  {d.deferredToMonth ? "—" : <>{rm(d.adminCut)}{d.flatDeducted > 0 && <span style={{ display: "block", fontSize: 9, color: T.muted }}>RM{d.flatDeducted.toFixed(2)} flat</span>}</>}
+                </div>
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>{discountBtn(d)}{deferControls(d)}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {collectInfo(d)}
+          {collectBtn(d, 52, 72)}
+        </div>
+      </div>
+    </div>
+  );
+
+  const modalRow = shown.find(r => r.teacher.id === modalTeacherId) ?? null;
+  const teacherDetailModal = modalRow && (
+    <Modal T={T} spot={`payroll.teacher.${modalRow.teacher.id}.details`} title={modalRow.teacher.name} width={720} onClose={() => setModalTeacherId(null)}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: T.muted, minWidth: 0 }}>
+          <div>{(modalRow.teacher.instruments ?? []).join(", ") || "No instruments"} · {modalRow.teacher.commissionPct}% default commission</div>
+          <div style={{ marginTop: 1 }}>{summaryLine(modalRow)} · {monthName}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: MONEY.blue }}>{rm(modalRow.totTeacher)}</div>
+            {paidBadge(modalRow)}
+          </div>
+          {isElevated && <div style={{ fontSize: 11, color: T.muted }}>Admin: {rm(modalRow.totAdmin)}</div>}
+        </div>
+      </div>
+      {isElevated && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <Btn T={T} data-search="payroll.payout" variant="ghost" style={{ flex: 1, padding: "9px 10px", fontSize: 12 }} onClick={() => { setModalTeacherId(null); openPayoutPreview(modalRow.teacher, selY, selM); }}>Pay Out</Btn>
+          <Btn T={T} data-search="payroll.edit-teacher" variant="ghost" style={{ flex: 1, padding: "9px 10px", fontSize: 12 }} onClick={() => { setModalTeacherId(null); openEditTeacher(modalRow.teacher); }}>Edit</Btn>
+        </div>
+      )}
+      {error && !discountFor && <ShakeBox shake={errShake} style={{ ...errBox, marginBottom: 12 }}>{error}</ShakeBox>}
+      {modalRow.details.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No students billed this month.</div>}
+      <div data-collect-zone={modalRow.teacher.id} data-search="payroll.table">
+        {modalRow.details.map(studentRow)}
+      </div>
+    </Modal>
   );
 
   const errorBar = error && !teacherModal && !discountFor && !finalizeOpen && <ShakeBox shake={errShake} style={{ ...errBox, marginBottom: 14 }}>{error}</ShakeBox>;
@@ -669,59 +707,26 @@ export default function Payroll({
         {shown.length === 0 && !isTeacher && <div style={{ ...errBox, marginBottom: 12, color: T.muted }}>No teachers yet. Payroll lists every teacher profile; add one on User Mgmt (role Teacher). If a Teacher account already exists there with a red "No teacher profile" badge, click Edit on it and save to create the profile.</div>}
         {shown.map(row => (
           <Card key={row.teacher.id} T={T} style={{ marginBottom: 12, padding: 14 }}>
-            <div data-search={`payroll.teacher.${row.teacher.id}`} {...toggleProps(row)} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isOpen(row) ? 12 : 0, cursor: "pointer", minHeight: 44 }}>
-              {chevron(isOpen(row))}
+            <div data-search={`payroll.teacher.${row.teacher.id}`} {...toggleProps(row)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", minHeight: 44 }}>
+              {chevron()}
               <Avatar name={row.teacher.name} size={36} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
                 <div style={{ fontSize: 11, color: T.muted }}>{summaryLine(row)}</div>
-                {isElevated && (
-                  <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }} onClick={e => e.stopPropagation()}>
-                    <Btn T={T} data-search="payroll.payout" variant="ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => openPayoutPreview(row.teacher, selY, selM)}>Pay Out</Btn>
-                    <Btn T={T} data-search="payroll.edit-teacher" variant="ghost" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => openEditTeacher(row.teacher)}>Edit</Btn>
-                    <Btn T={T} data-search="payroll.remove-teacher" variant="danger" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => removeTeacher(row.teacher)}>Remove</Btn>
-                  </div>
-                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: MONEY.blue }}>RM {row.totTeacher.toFixed(0)}</div>
                 <div style={{ fontSize: 10, color: T.muted }}>payout</div>
               </div>
             </div>
-            {isOpen(row) && row.details.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No students assigned.</div>}
-            {isOpen(row) && <div data-collect-zone={row.teacher.id}>
-            {row.details.map(d => (
-              <div key={d.eid} data-collect-row={d.eid} style={{ borderTop: `1px solid ${T.border}`, padding: "8px 0" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{nameFor(d)}</div>
-                    <div style={{ fontSize: 11, color: T.muted }}>{d.enrolment.grade} · {d.enrolment.instrument ?? "—"} · {d.enrolment.schedule?.duration ?? "?"} min</div>
-                    <div style={{ marginTop: 3 }}>{feeCell(d)}</div>
-                  </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    {d.deferredToMonth ? <div style={{ fontSize: 12, color: MONEY.amber, fontWeight: 600 }}>Deferred</div>
-                      : <div style={{ fontSize: 13, fontWeight: 700, color: MONEY.blue }}>{rm(d.teacherCut)}</div>}
-                    <div style={{ marginTop: 6 }}>{collectionTop(d)}</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>{discountBtn(d)}{deferControls(d)}</div>
-              </div>
-            ))}
-            </div>}
           </Card>
         ))}
-        {teacherForm}{discountModal}{finalizeModal}
+        {teacherDetailModal}{teacherForm}{discountModal}{finalizeModal}
       </div>
     );
   }
 
   // ── desktop ────────────────────────────────────────────────────────────────
-  // Student | Grade | Duration | Type | Fee | Gross | Teacher | Admin | Collection
-  const colGrid = "1.5fr 0.8fr 0.7fr 0.9fr 1.2fr 0.9fr 0.9fr 0.9fr 1.6fr";
-  const heads = ["Student", "Grade", "Duration", "Type", "Fee", "Gross", "Teacher", isElevated ? "Admin" : "", "Collection"];
-  const btnCol = COLLECT_W + 14;   // room for the square button at the end of each row
-  const sub = { fontSize: 10, color: T.muted };
-
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 10, flexWrap: "wrap" }}>
@@ -740,63 +745,10 @@ export default function Payroll({
       {shown.map(row => (
         <Card key={row.teacher.id} T={T} style={{ marginBottom: 14, padding: 0, overflow: "hidden", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
           {teacherHeader(row)}
-          {isOpen(row) && row.details.length === 0 && <div style={{ padding: "12px 16px", fontSize: 12, color: T.muted }}>No students billed this month.</div>}
-
-          {isOpen(row) && <div data-collect-zone={row.teacher.id} data-search="payroll.table">
-          {row.details.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: colGrid, alignItems: "center", padding: `6px ${16 + btnCol}px 6px 28px`, borderBottom: `0.6px solid ${T.border}` }}>
-              {heads.map((h, i) => <div key={i} style={{ fontSize: 10, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</div>)}
-            </div>
-          )}
-
-          {row.details.map(d => (
-            <div key={d.eid} data-collect-row={d.eid} style={{ position: "relative", borderBottom: `0.6px solid ${T.border}`, padding: "8px 16px 30px 28px", minHeight: COLLECT_SIZE, background: d.deferredToMonth ? T.rowAlt : "transparent", opacity: d.covered ? 0.7 : 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-              {/* top row */}
-              <div style={{ display: "grid", gridTemplateColumns: colGrid, alignItems: "center" }}>
-                <div style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{nameFor(d)}</div>
-                <div style={{ fontSize: 11, color: T.muted }}>{d.enrolment.grade}</div>
-                <div style={{ fontSize: 11, color: T.muted }}>{d.enrolment.schedule?.duration ?? "—"} min</div>
-                <div>{typeBadge(d)}</div>
-                <div>{feeCell(d)}</div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: MONEY.green }}>{rm(d.gross)}</div>
-                  {d.deferredGrossExtra > 0 && <div style={{ fontSize: 9, color: MONEY.purple, marginTop: 1 }}>+{rm(d.deferredGrossExtra)} deferred in</div>}
-                </div>
-                <div>{d.deferredToMonth ? <div style={{ fontSize: 11, fontWeight: 600, color: MONEY.amber }}>Deferred</div> : <div style={{ fontSize: 12, fontWeight: 700, color: MONEY.blue }}>{rm(d.teacherCut)}</div>}</div>
-                {isElevated ? (
-                  <div style={{ fontSize: 12, color: d.deferredToMonth ? T.muted : MONEY.violet }}>
-                    {d.deferredToMonth ? "—" : <>{rm(d.adminCut)}{d.flatDeducted > 0 && <span style={{ display: "block", fontSize: 9, color: T.muted }}>RM{d.flatDeducted.toFixed(2)} flat</span>}</>}
-                  </div>
-                ) : <div />}
-                {collectInfo(d)}
-              </div>
-              {/* bottom row */}
-              <div style={{ display: "grid", gridTemplateColumns: colGrid, alignItems: "center", marginTop: 5 }}>
-                <div style={sub}>{d.enrolment.instrument ?? "No longer offered"} · {TERM_LABEL[d.period.term]?.split(" ")[0] ?? ""}</div>
-                <div style={sub}>{d.enrolment.syllabus === "contemporary" ? "Contemporary" : "Classical"}</div>
-                <div />
-                <div />
-                <div>{discountBtn(d)}</div>
-                <div />
-                <div style={sub}>{!d.covered && `${d.commissionPct}%`}</div>
-                <div />
-                <div>{d.deferredFromMonths.length > 0 && <div style={{ fontSize: 9, color: MONEY.purple }}>+ from {d.deferredFromMonths.map(formatYM).join(", ")}</div>}</div>
-              </div>
-              </div>
-              <div style={{ position: "relative", width: COLLECT_W, height: COLLECT_SIZE, flexShrink: 0 }}>
-                {collectBtn(d, COLLECT_SIZE, COLLECT_W)}
-                {deferTab(d)}
-              </div>
-              </div>
-            </div>
-          ))}
-          </div>}
         </Card>
       ))}
 
-      {teacherForm}{discountModal}{finalizeModal}
+      {teacherDetailModal}{teacherForm}{discountModal}{finalizeModal}
     </div>
   );
 }

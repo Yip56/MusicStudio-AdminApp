@@ -19,6 +19,7 @@ import Payroll        from "./views/Payroll.jsx";
 import PayoutPreview  from "./views/PayoutPreview.jsx";
 import GradesAndFees  from "./views/GradesAndFees.jsx";
 import RoomsView      from "./views/RoomsView.jsx";
+import ProductsView   from "./views/ProductsView.jsx";
 import DiscountsView  from "./views/DiscountsView.jsx";
 import ArchiveView    from "./views/ArchiveView.jsx";
 import ActivityLogView from "./views/ActivityLogView.jsx";
@@ -37,10 +38,13 @@ const ALL_NAV = [
   { id: "discounts", label: "Discounts",     icon: "%", roles: ["admin", "sysadmin"] },
   { id: "grades",    label: "Grades & Fees", icon: "★", roles: ["admin", "sysadmin"] },
   { id: "rooms",     label: "Rooms",         icon: "⊞", roles: ["admin", "sysadmin"] },
+  { id: "products",  label: "Products",      icon: "▣", roles: ["admin", "sysadmin"] },
   { id: "archive",   label: "Archive",       icon: "▤", roles: ["teacher", "admin", "sysadmin"] },
   { id: "activity",  label: "Activity Log",  icon: "≡", roles: ["admin", "sysadmin"] },
   { id: "users",     label: "User Mgmt",     icon: "⚙", roles: ["sysadmin"] },
 ];
+
+const NAV_GROUP_IDS = ["discounts", "grades", "rooms", "archive", "activity", "users"]; // collapsed under one desktop sidebar toggle
 
 const MOBILE_PRIMARY = 4; // number of nav items shown in the floating tab bar before "More"
 
@@ -49,6 +53,7 @@ export default function App() {
   const T = getTokens(theme);
   const { user, firestoreUser, role, loading, authError, signInWithGoogle, switchAccount, signOut } = useAuth();
   const { notifications, pendingCount, resolveNotification, dismissNotification } = useNotifications(firestoreUser);
+  const [navGroupOpen, setNavGroupOpen] = useState(false);
   const [gradeNotes,        setGradeNotes]        = useState({});   // admin's note per pending grade request
   const [gradeNoteErr,      setGradeNoteErr]      = useState({});   // { [notifId]: shake count } once a reject was blocked
   const isMobile = useMobile();
@@ -81,7 +86,7 @@ export default function App() {
 
   // All studio data (students, enrolments, deposits, teachers, rooms, attendance…) lives in Firestore
   const studio = useStudio({ enabled: signedIn, actor: currentUser, fees, contemporaryFees });
-  const { students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
+  const { students, enrolments, deposits, teachers, rooms, products, attendance, oneOffSessions, discounts,
           monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log } = studio;
 
   // App stays mounted across sign-out / switch account, so drop the previous person's page and open panels
@@ -178,6 +183,24 @@ export default function App() {
   const nav          = ALL_NAV.filter(n => n.roles.includes(role));
   const effectiveView = (view && (nav.some(n => n.id === view) || view === "payout_preview")) ? view : nav[0]?.id;
 
+  const groupItems = nav.filter(n => NAV_GROUP_IDS.includes(n.id));
+  const groupOpen  = navGroupOpen || groupItems.some(g => g.id === effectiveView);
+
+  const renderNavItem = (n, active, indented) => (
+    <button key={n.id} onClick={() => navigateTo(n.id)} className="sos-nav" aria-current={active ? "page" : undefined} style={{
+      display: "flex", alignItems: "center", width: "100%",
+      height: 42, padding: indented ? "0 0 0 28px" : "0 0 0 14px", border: "none",
+      borderLeft: active ? "2px solid #CB3CFF" : "2px solid transparent",
+      ...(active ? { background: "rgba(203,60,255,0.12)" } : {}),
+      cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+      color: active ? "#CB3CFF" : T.muted, fontWeight: active ? 600 : 500, fontSize: 14,
+      borderRadius: 7
+    }}>
+      <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{n.icon}</span>
+      {n.label}
+    </button>
+  );
+
   // ── Firestore write helpers ──────────────────────────────────────────────────
   async function saveFees() {
     const before = feesBaseline.current;
@@ -268,7 +291,7 @@ export default function App() {
 
   // ── Shared props ─────────────────────────────────────────────────────────────
   const shared = {
-    students, enrolments, deposits, teachers, rooms, attendance, oneOffSessions, discounts,
+    students, enrolments, deposits, teachers, rooms, products, attendance, oneOffSessions, discounts,
     monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log,
     fees,     setFees,
     contemporaryFees, setContemporaryFees,
@@ -295,6 +318,7 @@ export default function App() {
     discounts:      <DiscountsView {...shared} />,
     grades:         <GradesAndFees {...shared} />,
     rooms:          <RoomsView    {...shared} />,
+    products:       <ProductsView {...shared} />,
     archive:        <ArchiveView  {...shared} />,
     activity:       <ActivityLogView {...shared} />,
     users:          <UserManagement {...shared} />,
@@ -656,23 +680,21 @@ export default function App() {
         </button>
 
         <nav style={{ flex: 1, padding: "0 8px" }}>
-          {nav.map(n => {
-            const active = effectiveView === n.id;
-            return (
-              <button key={n.id} onClick={() => navigateTo(n.id)} className="sos-nav" aria-current={active ? "page" : undefined} style={{
-                display: "flex", alignItems: "center", width: "100%",
-                height: 42, padding: "0 0 0 14px", border: "none",
-                borderLeft: active ? "2px solid #CB3CFF" : "2px solid transparent",
-                ...(active ? { background: "rgba(203,60,255,0.12)" } : {}),
+          {nav.filter(n => !NAV_GROUP_IDS.includes(n.id)).map(n => renderNavItem(n, effectiveView === n.id, false))}
+          {groupItems.length > 0 && (
+            <div>
+              <button onClick={() => setNavGroupOpen(o => !o)} className="sos-nav" aria-expanded={groupOpen} style={{
+                display: "flex", alignItems: "center", width: "100%", height: 42, padding: "0 0 0 14px",
+                border: "none", borderLeft: "2px solid transparent", background: "transparent",
                 cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                color: active ? "#CB3CFF" : T.muted, fontWeight: active ? 600 : 500, fontSize: 14,
-                borderRadius: 7
+                color: T.muted, fontWeight: 500, fontSize: 14, borderRadius: 7
               }}>
-                <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{n.icon}</span>
-                {n.label}
+                <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{groupOpen ? "▾" : "▸"}</span>
+                More
               </button>
-            );
-          })}
+              {groupOpen && groupItems.map(g => renderNavItem(g, effectiveView === g.id, true))}
+            </div>
+          )}
         </nav>
 
         <div style={{ borderTop: `0.6px solid ${T.border2}`, margin: "0 8px" }} />

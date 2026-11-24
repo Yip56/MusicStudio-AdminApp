@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import {
   collection, getDocs, doc, setDoc, updateDoc, deleteDoc, deleteField, arrayUnion, arrayRemove, writeBatch, runTransaction, onSnapshot, serverTimestamp,
 } from "firebase/firestore";
-import { db } from "../firebase.js";
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { db, storage } from "../firebase.js";
 import { useCollection } from "./useCollection.js";
 import { logActivity } from "../data/activity.js";
 import { diffFields } from "../domain/audit.js";
@@ -14,6 +15,8 @@ import { newDeposit, collectDeposit, applyDeposit, forfeitDeposit, editDepositAm
 import { buildEnrolmentRow, buildCollectionSnapshot } from "../domain/payroll.js";
 import { getInstruments, findUnavailableInstrumentRefs } from "../domain/instruments.js";
 import { ymOfDate } from "../domain/time.js";
+import { shrinkImage } from "../utils/image.js";
+import { validateProduct, normalizeProduct, validateImageFile, safeFileName } from "../domain/products.js";
 import { buildCalendar, fifthKey, validateDayOverride, dayStatus } from "../domain/calendar.js";
 import { TODAY } from "../data/seed.js";
 
@@ -27,6 +30,7 @@ const strip = ({ id, ...rest }) => rest; // never write the doc id into the doc 
  *   students/{id}            person: name, phone, notes
  *   enrolments/{id}          student + instrument: teacher, slot, grade, fee, term, commission (see domain/enrolments)
  *   deposits/{enrolmentId}   one registration deposit per enrolment (see domain/deposits)
+ *   products/{id}            item for sale on the website (photos in Storage; see domain/products)
  *   teachers/{id}  rooms/{id}  attendance/{enrolmentId_date}  one_off_sessions/{id}  discounts/{id}
  *   settings/studio          { adminFlatFee }
  *   month_snapshots/{ym}     immutable finalized month     month_revisions/{id}  corrections to a finalized month
@@ -43,6 +47,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   const oneOffs    = useCollection("one_off_sessions", enabled);
   const overrides  = useCollection("calendar_overrides", enabled);
   const discounts  = useCollection("discounts",        isAdmin);
+  const products   = useCollection("products",         isAdmin);
   const snapshots  = useCollection("month_snapshots",  isAdmin);
   const revisions  = useCollection("month_revisions",  isAdmin);
 
@@ -315,6 +320,61 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     await log({ type: "room", action: "delete", summary: `Removed room ${r?.name ?? id}`, entity: { kind: "room", id } });
   }
 
+  // ── products (sold on the public website) ───────────────────────────────────
+  /**
+   * `images` is the final, ordered photo list (first = cover): saved photos as { url, path }, new
+   * ones as { file }. New files are uploaded; saved photos dropped from the list are deleted.
+   */
+  async function saveProduct(id, data, images = [], onProgress = () => {}) {
+    const errors = validateProduct(data, { imageCount: images.length });
+    if (errors.length) throw new Error(errors.join(" "));
+    images.filter(i => i.file).forEach(i => { const e = validateImageFile(i.file); if (e) throw new Error(e); });
+
+    const body = normalizeProduct(data);
+    const docRef = id ? doc(db, "products", id) : doc(collection(db, "products"));
+    const prev = products.items.find(p => p.id === id);
+
+    // Shrink and upload all new photos at once (not one after another), keeping the chosen order
+    const total = images.filter(i => i.file).length;
+    let done = 0;
+    if (total) onProgress(`Uploading photos 0/${total}…`);
+    const final = await Promise.all(images.map(async (img, i) => {
+      if (!img.file) return { url: img.url, path: img.path };
+      try {
+        const blob = await shrinkImage(img.file);
+        const safe = safeFileName(img.file.name);
+        const ext  = blob.type === "image/jpeg" ? ".jpg" : (safe.match(/\.[a-z0-9]+$/)?.[0] ?? "");
+        const path = `products/${docRef.id}/${Date.now()}-${i}-${safe.replace(/\.[a-z0-9]+$/, "")}${ext}`;
+        const r = storageRef(storage, path);
+        await uploadBytes(r, blob, { contentType: blob.type || img.file.type });
+        const url = await getDownloadURL(r);
+        onProgress(`Uploading photos ${++done}/${total}…`);
+        return { url, path };
+      } catch (e) {
+        throw new Error(`Photo upload failed (${e.code ?? e.message}). Check that Firebase Storage is enabled and its rules are deployed.`);
+      }
+    }));
+    onProgress("Saving…");
+
+    await setDoc(docRef, { ...body, images: final, updatedAt: serverTimestamp(), ...(id ? {} : { createdAt: serverTimestamp() }) }, { merge: true });
+
+    const kept = new Set(final.map(i => i.path));
+    await Promise.all((prev?.images ?? []).filter(i => !kept.has(i.path)).map(i => deleteObject(storageRef(storage, i.path)).catch(() => {})));
+
+    await log({
+      type: "product", action: id ? "update" : "create",
+      summary: `${id ? "Edited" : "Added"} product ${body.name}`, entity: { kind: "product", id: docRef.id },
+      changes: id ? diffFields(prev, body, ["name", "description", "category", "price", "status", "published"]) : [],
+    });
+  }
+
+  async function removeProduct(id) {
+    const p = products.items.find(x => x.id === id);
+    await deleteDoc(doc(db, "products", id));
+    await Promise.all((p?.images ?? []).map(i => deleteObject(storageRef(storage, i.path)).catch(() => {})));
+    await log({ type: "product", action: "delete", summary: `Removed product ${p?.name ?? id}`, entity: { kind: "product", id } });
+  }
+
   // ── attendance & one-off bookings ───────────────────────────────────────────
   async function setAttendance(enrolmentId, date, status, notes = "") {
     const ref = doc(db, "attendance", `${enrolmentId}_${date}`);
@@ -474,7 +534,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   return {
     students: students.items, enrolments: enrolments.items, deposits: deposits.items,
     teachers: teachers.items, rooms: rooms.items, attendance: attendance.items,
-    oneOffSessions: oneOffs.items, discounts: discounts.items,
+    oneOffSessions: oneOffs.items, discounts: discounts.items, products: products.items,
     monthSnapshots: snapshots.items, monthRevisions: revisions.items,
     adminFlatFee: settings.adminFlatFee, instruments, tables, calendar,
     loaded: [students, enrolments, teachers, rooms].every(c => c.loaded),
@@ -482,7 +542,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     actions: {
       registerStudent, addEnrolment, saveStudent, updateEnrolment, stopEnrolment, applyDepositNow, removeStudent,
       collectDepositFor, editDepositFor, forfeitDepositFor, backfillDeposit,
-      saveTeacher, removeTeacher, saveRoom, removeRoom,
+      saveTeacher, removeTeacher, saveRoom, removeRoom, saveProduct, removeProduct,
       setDayOverride, clearDayOverride, runFifthLessons, clearFifthLesson,
       setAttendance, addOneOff, updateOneOff, deleteOneOff,
       saveDiscount, deleteDiscount, setDiscountGrant, saveAdminFlatFee, finalizeMonth, saveRevision, cleanupInstruments,

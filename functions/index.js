@@ -31,3 +31,39 @@ exports.getPublicFees = onRequest(
     });
   }
 );
+
+// Public HTTPS endpoint — returns the products marked "On website" in StudioOS.
+// Response shape: { products: [{ id, name, description, category, price|null, status, images: [url, …] }] }
+// Only these fields are exposed; unpublished products and internal fields never leave the server.
+exports.getPublicProducts = onRequest(
+  {
+    region: "asia-southeast1",
+    cors: true,
+    invoker: "public",
+    timeoutSeconds: 10,
+    minInstances: 0,
+  },
+  async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=300");
+
+    const snap = await getFirestore().collection("products").where("published", "==", true).get();
+    const products = snap.docs
+      .map(d => {
+        const p = d.data();
+        return {
+          id: d.id,
+          name: p.name ?? "",
+          description: p.description ?? "",
+          category: p.category ?? "",
+          price: typeof p.price === "number" ? p.price : null,
+          status: p.status === "sold_out" ? "sold_out" : "in_stock",
+          images: (p.images ?? []).map(i => i.url).filter(Boolean),
+          createdMs: p.createdAt?.toMillis?.() ?? 0,
+        };
+      })
+      .sort((a, b) => b.createdMs - a.createdMs)
+      .map(({ createdMs, ...rest }) => rest);
+
+    res.json({ products });
+  }
+);

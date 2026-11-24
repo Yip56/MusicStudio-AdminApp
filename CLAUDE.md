@@ -4,7 +4,7 @@
 - **Name:** StudioOS
 - **Purpose:** Music studio admin panel — students & enrolments, teachers, rooms, scheduling, attendance, fees, deposits, payroll, month-end archive
 - **Stack:** React 18, Vite 5, pure CSS-in-JS (no UI library). Tests: Vitest (`npm test`).
-- **Backend:** Firebase Auth (Google Sign-In) + Firestore (project `ark-music-portal`, region asia-southeast1) + one Cloud Function (`getPublicFees`)
+- **Backend:** Firebase Auth (Google Sign-In) + Firestore (project `ark-music-portal`, region asia-southeast1) + Cloud Functions (`getPublicFees`, `getPublicProducts`) + Firebase Storage (product photos)
 - **All data is in Firestore.** There is no seed/demo data and no in-memory domain state any more (v7). A fresh studio starts empty: add instruments on **Grades & Fees** first, then rooms, teachers, students.
 
 ---
@@ -17,7 +17,8 @@ npm test             # Vitest: domain unit tests + server-render smoke tests of 
 npm run build        # production build → dist/
 firebase deploy --only firestore:rules   # push security rules (REQUIRED after pulling v7 — new collections are rule-protected)
 firebase deploy --only hosting           # deploy built app (build first)
-firebase deploy --only functions         # deploy getPublicFees
+firebase deploy --only functions         # deploy getPublicFees + getPublicProducts
+firebase deploy --only storage           # push storage.rules (product photos; Storage must be enabled in the console first)
 ```
 
 There are **no data migrations** to run for v7: the previous students/teachers/rooms lived only in memory (seed data), so nothing persisted needs converting. Old `payroll_months` / `class_deferrals` docs written during development refer to demo ids (`s1`…`s5`); they are ignored by the new code and can be deleted in the Firebase console. Instruments that disappear from Grades & Fees are cleaned out of teachers/rooms/enrolments automatically (`cleanupInstruments`, below). Use **Archive → Download full backup** before any bulk change.
@@ -324,3 +325,14 @@ Put it in `src/domain/` with a test next to it; call it from `useStudio` (writes
   - **Finalize Month** (immutable snapshot) and **Archive** (finalized months, sysadmin revisions with affected-month highlighting, notification archive, full backup). **Activity Log** page.
   - Grade lock was dropped in favour of Finalize Month + a collected-fee warning.
   - Vitest added (domain tests + view smoke tests); `docs/user-guide-teacher.md` added.
+
+
+---
+
+## Products (sold on the public website)
+
+- `products/{id}`: `name, description, category, price (number|null), status ("in_stock"|"sold_out"), published, images [{url, path}], createdAt, updatedAt`. Pure rules in `src/domain/products.js` (tested).
+- Admin/sysadmin manage them in the **Products** view (add/edit/hide/remove, up to 6 photos each, first photo = cover). Photos upload to Storage at `products/{id}/…`; `useStudio.saveProduct/removeProduct` own all writes and log to the activity log.
+- The website never reads Firestore. It calls the `getPublicProducts` Cloud Function, which returns only products with `published == true` and only public fields. No payments: buyers contact the studio via WhatsApp.
+- A blank price shows "Contact us for price" on the website.
+- Deploy order: enable Storage in the Firebase console, then `firebase deploy --only firestore:rules,storage,functions`.

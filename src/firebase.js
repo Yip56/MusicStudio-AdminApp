@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey:            "AIzaSyDFjoStKzfUtlWyEkcCs_1TuZm8R_0MZVc",
@@ -14,6 +15,9 @@ const firebaseConfig = {
 export const app  = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db   = getFirestore(app);
+export const storage = getStorage(app);
+// Fail in ~20s (not the 10-minute default) when an upload cannot go through, e.g. Storage not enabled
+storage.maxUploadRetryTime = 20_000;
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
