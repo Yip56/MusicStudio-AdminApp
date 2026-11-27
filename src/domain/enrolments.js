@@ -132,6 +132,32 @@ export function getAttendedCountForMonth(enrolmentId, year, month0, attendance) 
   return attendance.filter(a => a.enrolmentId === enrolmentId && a.status === "present" && a.date.startsWith(prefix)).length;
 }
 
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Inclusive "YYYY-MM-DD" range of the week (Mon–Sun), month or year containing `today`. */
+export function getPeriodRange(period, today) {
+  const t = new Date(today + "T00:00:00");
+  if (period === "week") {
+    const from = new Date(t); from.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+    const to = new Date(from); to.setDate(from.getDate() + 6);
+    return { from: ymd(from), to: ymd(to) };
+  }
+  if (period === "year") return { from: `${t.getFullYear()}-01-01`, to: `${t.getFullYear()}-12-31` };
+  return { from: ymd(new Date(t.getFullYear(), t.getMonth(), 1)), to: ymd(new Date(t.getFullYear(), t.getMonth() + 1, 0)) };
+}
+
+/** Lessons of an enrolment that have fallen due in [from, to] (inclusive). Pass `to` ≤ today to count only lessons already held. */
+export function getScheduledCountInRange(e, from, to, cal = NO_CALENDAR) {
+  if (!from || !to || to < from) return 0;
+  const years = [];
+  for (let y = Number(from.slice(0, 4)); y <= Number(to.slice(0, 4)); y++) years.push(y);
+  return years.flatMap(y => getRecurringDates(e, y, cal)).filter(d => d >= from && d <= to).length;
+}
+
+export function getAttendedCountInRange(enrolmentId, from, to, attendance) {
+  return attendance.filter(a => a.enrolmentId === enrolmentId && a.status === "present" && a.date >= from && a.date <= to).length;
+}
+
 // ─── Conflicts ────────────────────────────────────────────────────────────────
 
 /**

@@ -38,6 +38,16 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
 @media (hover: hover) and (pointer: fine) {
   .sos-row:hover, .sos-nav:hover { background-color: var(--sos-hover); }
 }
+/* Nav labels glide a few px toward the page: right from the desktop sidebar, up from the mobile tab bar */
+.sos-nav-label, .sos-tab-label { transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.sos-nav[aria-current="page"] .sos-nav-label { transform: translateX(4px); }
+@media (hover: hover) and (pointer: fine) {
+  .sos-nav:hover .sos-nav-label { transform: translateX(4px); }
+}
+.sos-tab[aria-current="page"] .sos-tab-label, .sos-tab:active .sos-tab-label { transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) {
+  .sos-nav-label, .sos-tab-label { transition: none; }
+}
 .sos-row--sel, .sos-row--sel:hover { background-color: var(--sos-sel) !important; }
 
 /* Translucent material */

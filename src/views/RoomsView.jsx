@@ -3,8 +3,13 @@ import { Card, Btn, Badge, Modal, Inp, Sel, SectionTitle, ShakeBox } from "../co
 import { useShakeError } from "../hooks/useShakeError.js";
 import { TODAY, ROOM_COLORS, STATUS_META } from "../data/seed.js";
 import { getMergedSessionsForDate } from "../domain/enrolments.js";
+import RemarkField from "../components/RemarkField.jsx";
 
-export default function RoomsView({ rooms, enrolments, students, teachers, attendance, calendar, instruments, actions, T, isMobile, setDirty }) {
+export default function RoomsView({ rooms, enrolments, students, teachers, attendance, remarks, calendar, instruments, actions, currentUser, T, isMobile, setDirty }) {
+  const [remarkSess, setRemarkSess] = useState(null);
+  // Remarks are for admins and the class's own teacher only
+  const ownsSess = s => !currentUser || currentUser.role !== "teacher" || s.teacherId === currentUser.teacherId;
+  const remarkFor = s => (remarks ?? []).find(r => r.id === s.id);
   const [pageError, setPageError, pageShake] = useShakeError();
   const [selRoom,  setSelRoom]  = useState(null);
   const [modal,    setModal]    = useState(null);
@@ -74,9 +79,11 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
             const tc = teachers.find(t => t.id === sess.teacherId);
             const sm = STATUS_META[sess.status] ?? { color: T.muted, bg: T.dim, label: "Pending" };
             return (
-              <div key={sess.id} style={{
+              <div key={sess.id} onClick={() => ownsSess(sess) && setRemarkSess(sess)} style={{
                 display: "flex", alignItems: "center", gap: 14, padding: "12px 16px",
-                borderBottom: i < roomSessions.length - 1 ? `0.6px solid ${T.border}` : "none"
+                cursor: ownsSess(sess) ? "pointer" : "default",
+                opacity: sess.status === "present" || sess.status === "absent" ? 0.75 : 1,
+                                borderBottom: i < roomSessions.length - 1 ? `0.6px solid ${T.border}` : "none"
               }}>
                 <div style={{ minWidth: 90, textAlign: "center", background: selRoom.color + "15",
                   border: `1px solid ${selRoom.color}30`, borderRadius: 8, padding: "6px 8px" }}>
@@ -87,7 +94,9 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{st?.name ?? "?"}</div>
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{tc?.name ?? "?"}</div>
-                  {sess.notes && <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic", marginTop: 2 }}>{sess.notes}</div>}
+                  {ownsSess(sess) && remarkFor(sess)?.text && (
+                    <div style={{ fontSize: 10, color: T.muted, fontStyle: "italic", marginTop: 2 }}>📝 {remarkFor(sess).text}</div>
+                  )}
                 </div>
                 <Badge label={sess.status === "pending" ? "Not marked" : sess.status}
                   color={sm.color} bg={sm.bg} />
@@ -117,6 +126,16 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
         </div>
       </div>
     </Card>
+  );
+
+  const remarkModal = remarkSess && (
+    <Modal T={T} title="Class remarks" onClose={() => setRemarkSess(null)}>
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>
+        {students.find(s => s.id === remarkSess.studentId)?.name ?? "?"} · {remarkSess.startTime}–{remarkSess.endTime} · {remarkSess.date}
+      </div>
+      <RemarkField sess={remarkSess} remark={remarkFor(remarkSess)} canEdit={ownsSess(remarkSess)} T={T}
+        onSave={actions.setRemark} />
+    </Modal>
   );
 
   const roomModal = modal && (
@@ -190,7 +209,6 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
                   style={{
                     background: T.panel, borderRadius: 14, padding: "14px 16px",
                     border: `1px solid ${isSelected ? r.color : T.border}`,
-                    borderLeft: `4px solid ${r.color}`,
                     cursor: "pointer"
                   }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -227,6 +245,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
         </div>
 
         {roomModal}
+        {remarkModal}
       </div>
     );
   }
@@ -260,7 +279,6 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
                 style={{
                   background: T.panel, borderRadius: 12, padding: "14px 16px",
                   border: `1px solid ${isSelected ? r.color : T.border}`,
-                  borderLeft: `4px solid ${r.color}`,
                   cursor: "pointer", transition: "border-color 0.15s",
                   boxShadow: isSelected ? `0 0 0 1px ${r.color}40` : "none"
                 }}>
@@ -290,6 +308,7 @@ export default function RoomsView({ rooms, enrolments, students, teachers, atten
       </div>
 
       {roomModal}
+      {remarkModal}
     </div>
   );
 }

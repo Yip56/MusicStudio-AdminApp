@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   getSessionsForDate, getMergedSessionsForDate, findScheduleConflicts, validateEnrolment,
   newEnrolmentDoc, stopEnrolmentPatch, needsCollectedFeeWarning, getScheduledCountForMonth,
-  defaultMakeupSlot, findMakeupConflicts,
+  defaultMakeupSlot, findMakeupConflicts, getPeriodRange, getScheduledCountInRange, getAttendedCountInRange,
 } from "./enrolments.js";
 
 const sched = (dayOfWeek, startTime, endTime, roomId, duration = "60") => ({ dayOfWeek, startTime, endTime, roomId, duration });
@@ -183,5 +183,28 @@ describe("make-up slots", () => {
     expect(findMakeupConflicts(cand, on).map(c => c.kind)).toEqual(["room"]);
     expect(findMakeupConflicts({ ...cand, startTime: "13:30", endTime: "14:00" }, on)).toEqual([]);
     expect(findMakeupConflicts({ ...cand, studentId: "s9", roomId: "r2" }, on).map(c => c.kind)).toEqual(["student"]);
+  });
+});
+
+describe("attendance chart periods", () => {
+  it("week is Mon–Sun, month and year are the calendar month and year", () => {
+    expect(getPeriodRange("week", SAT)).toEqual({ from: "2026-08-03", to: "2026-08-09" });
+    expect(getPeriodRange("week", "2026-08-09")).toEqual({ from: "2026-08-03", to: "2026-08-09" }); // Sunday stays in its week
+    expect(getPeriodRange("month", SAT)).toEqual({ from: "2026-08-01", to: "2026-08-31" });
+    expect(getPeriodRange("year", SAT)).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+  });
+
+  it("counts lessons due and lessons attended inside the range only", () => {
+    expect(getScheduledCountInRange(piano, "2026-08-03", SAT)).toBe(1);
+    expect(getScheduledCountInRange(piano, "2026-08-01", SAT)).toBe(2);
+    expect(getScheduledCountInRange(piano, "2026-12-28", "2027-01-10")).toBe(2); // spans a year boundary
+    expect(getScheduledCountInRange(piano, SAT, "2026-08-01")).toBe(0);
+    const att = [
+      { enrolmentId: "e1", date: SAT, status: "present" },
+      { enrolmentId: "e1", date: "2026-08-01", status: "absent" },
+      { enrolmentId: "e2", date: SAT, status: "present" },
+    ];
+    expect(getAttendedCountInRange("e1", "2026-08-01", SAT, att)).toBe(1);
+    expect(getAttendedCountInRange("e1", "2026-08-03", SAT, att)).toBe(1);
   });
 });

@@ -86,7 +86,7 @@ export default function App() {
 
   // All studio data (students, enrolments, deposits, teachers, rooms, attendance…) lives in Firestore
   const studio = useStudio({ enabled: signedIn, actor: currentUser, fees, contemporaryFees });
-  const { students, enrolments, deposits, teachers, rooms, products, attendance, oneOffSessions, discounts,
+  const { students, enrolments, deposits, teachers, rooms, products, attendance, remarks, oneOffSessions, discounts,
           monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log } = studio;
 
   // App stays mounted across sign-out / switch account, so drop the previous person's page and open panels
@@ -190,14 +190,13 @@ export default function App() {
     <button key={n.id} onClick={() => navigateTo(n.id)} className="sos-nav" aria-current={active ? "page" : undefined} style={{
       display: "flex", alignItems: "center", width: "100%",
       height: 42, padding: indented ? "0 0 0 28px" : "0 0 0 14px", border: "none",
-      borderLeft: active ? "2px solid #CB3CFF" : "2px solid transparent",
       ...(active ? { background: "rgba(203,60,255,0.12)" } : {}),
       cursor: "pointer", fontFamily: "inherit", textAlign: "left",
       color: active ? "#CB3CFF" : T.muted, fontWeight: active ? 600 : 500, fontSize: 14,
       borderRadius: 7
     }}>
       <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{n.icon}</span>
-      {n.label}
+      <span className="sos-nav-label">{n.label}</span>
     </button>
   );
 
@@ -291,7 +290,7 @@ export default function App() {
 
   // ── Shared props ─────────────────────────────────────────────────────────────
   const shared = {
-    students, enrolments, deposits, teachers, rooms, products, attendance, oneOffSessions, discounts,
+    students, enrolments, deposits, teachers, rooms, products, attendance, remarks, oneOffSessions, discounts,
     monthSnapshots, monthRevisions, adminFlatFee, instruments, tables, calendar, actions, log,
     fees,     setFees,
     contemporaryFees, setContemporaryFees,
@@ -575,7 +574,7 @@ export default function App() {
         }}>
           {[...mobileNavItems.map(n => ({ ...n, on: effectiveView === n.id, go: () => navigateTo(n.id) })),
             { id: "__more", label: "More", icon: "⋯", on: moreOpen, go: () => setMoreOpen(true) }].map(n => (
-            <button key={n.id} onClick={n.go} aria-label={n.label} aria-current={n.on ? "page" : undefined}
+            <button key={n.id} onClick={n.go} aria-label={n.label} aria-current={n.on ? "page" : undefined} className="sos-tab"
               style={{
                 flex: 1, border: "none", borderRadius: 18, minWidth: 0,
                 background: n.on ? "rgba(203,60,255,0.14)" : "transparent", color: n.on ? "#CB3CFF" : T.muted,
@@ -583,7 +582,7 @@ export default function App() {
                 fontFamily: "inherit", transition: "transform 0.1s ease-out, background-color 0.15s, color 0.15s",
               }}>
               <span style={{ fontSize: 18, lineHeight: 1 }}>{n.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: n.on ? 700 : 500, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{n.label}</span>
+              <span className="sos-tab-label" style={{ fontSize: 10, fontWeight: n.on ? 700 : 500, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{n.label}</span>
             </button>
           ))}
         </nav>
@@ -685,12 +684,12 @@ export default function App() {
             <div>
               <button onClick={() => setNavGroupOpen(o => !o)} className="sos-nav" aria-expanded={groupOpen} style={{
                 display: "flex", alignItems: "center", width: "100%", height: 42, padding: "0 0 0 14px",
-                border: "none", borderLeft: "2px solid transparent", background: "transparent",
+                border: "none", background: "transparent",
                 cursor: "pointer", fontFamily: "inherit", textAlign: "left",
                 color: T.muted, fontWeight: 500, fontSize: 14, borderRadius: 7
               }}>
                 <span style={{ fontSize: 14, width: 14, textAlign: "center", flexShrink: 0, marginRight: 20 }}>{groupOpen ? "▾" : "▸"}</span>
-                More
+                <span className="sos-nav-label">More</span>
               </button>
               {groupOpen && groupItems.map(g => renderNavItem(g, effectiveView === g.id, true))}
             </div>

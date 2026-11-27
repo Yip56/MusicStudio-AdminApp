@@ -29,7 +29,8 @@ export const SEARCH_ENTRIES = [
   { id: "dashboard.teachers",  page: "dashboard", label: "Teacher count",      keywords: ["how many teachers", "staff count"], roles: ADMIN },
   { id: "dashboard.today",     page: "dashboard", label: "Today's classes",    keywords: ["attendance today", "present", "sessions today", "who is in"], roles: ADMIN },
   { id: "dashboard.collected", page: "dashboard", label: "Fees collected",     keywords: ["revenue", "income", "money in", "paid so far", "takings"], roles: ADMIN },
-  { id: "dashboard.deposits",  page: "dashboard", label: "Deposits held",      keywords: ["liability", "registration deposit", "deposit total"], roles: ADMIN },
+  { id: "dashboard.attendance-period", page: "dashboard", label: "Attendance chart (week / month / year)", keywords: ["attendance chart", "attendance rate", "weekly attendance", "monthly attendance", "yearly attendance"], roles: ADMIN },
+  { id: "dashboard.deposits", page: "dashboard", label: "Deposits held",      keywords: ["liability", "registration deposit", "deposit total"], roles: ADMIN },
 
   // ── Calendar
   { id: "calendar.month",       page: "calendar", label: "Month calendar",           keywords: ["date picker", "previous month", "next month", "pick a day", "go to date"] },

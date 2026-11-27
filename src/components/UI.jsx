@@ -25,7 +25,6 @@ export function Badge({ label, color = "#AEB9E1", bg = "#0A1330", border }) {
       border: `0.6px solid ${border || color + "80"}`,
       whiteSpace: "nowrap"
     }}>
-      <span style={{ width: 3, height: 3, borderRadius: "50%", background: color, flexShrink: 0 }} />
       {label}
     </span>
   );

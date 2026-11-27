@@ -285,7 +285,7 @@ export default function Payroll({
   }
   const sumOf = list => list.reduce((s, e) => s + e.amount, 0);
 
-  const deferralCard = isElevated && (
+  const deferralCard = isElevated && (deferTo.length > 0 || deferFrom.length > 0) && (
     <Card T={T} spot="payroll.deferrals" style={{ marginBottom: 18, padding: "14px 18px", border: `0.6px solid ${T.border2}`, borderRadius: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 12, fontFamily: "'Red Hat Display', 'Plus Jakarta Sans', sans-serif" }}>Fee Deferrals</div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
@@ -606,11 +606,7 @@ export default function Payroll({
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         {chevron()}
         <Avatar name={row.teacher.name} size={34} />
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
-          <div style={{ fontSize: 11, color: T.muted }}>{(row.teacher.instruments ?? []).join(", ") || "No instruments"} · {row.teacher.commissionPct}% default commission</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{summaryLine(row)}</div>
-        </div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
       </div>
       <div style={{ textAlign: "right" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
@@ -710,10 +706,7 @@ export default function Payroll({
             <div data-search={`payroll.teacher.${row.teacher.id}`} {...toggleProps(row)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", minHeight: 44 }}>
               {chevron()}
               <Avatar name={row.teacher.name} size={36} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
-                <div style={{ fontSize: 11, color: T.muted }}>{summaryLine(row)}</div>
-              </div>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: T.text }}>{row.teacher.name}</div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: MONEY.blue }}>RM {row.totTeacher.toFixed(0)}</div>
                 <div style={{ fontSize: 10, color: T.muted }}>payout</div>

@@ -106,6 +106,7 @@ Teachers don't subscribe to admin-only collections (`deposits`, `discounts`, `mo
 | `fees/classical`, `fees/contemporary` | `{ Instrument: { Level: { "30": RM, "45": RM, "60": RM } } }`. **The keys of these two docs ARE the studio's instruments.** Edited on Grades & Fees. Read publicly via `getPublicFees`. |
 | `students`, `enrolments`, `teachers`, `rooms` | See schema below. Read: signed in. Write: admin/sysadmin. |
 | `attendance/{enrolmentId_YYYY-MM-DD}` | `{ enrolmentId, date, status, notes }`. Signed-in read/write (teachers mark attendance). Absence of a doc = not marked. |
+| `class_remarks/{sessionId}` | Remark for one lesson on one date `{ sessionId, enrolmentId, teacherId, date, text }` (doc id = session id: `recurring_<enrolment>_<date>`, `makeup_<id>`, one-off id). Edited under attendance in the Calendar class popup and from a Rooms row (`RemarkField`, `useStudio.setRemark`; blank text deletes). Admin edits any; a teacher only their own class (rules check `teacherId`). Hidden from other teachers in the UI only. **Deploy `firestore.rules`.** |
 | `one_off_sessions/{id}` | Extra bookings from the calendar. |
 | `class_deferrals/{id}` | Make-up classes `{ enrolmentId, studentId, teacherId, originalDate, makeupDate, … }`. |
 | `deposits/{enrolmentId}` | Deposit lifecycle (below). Admin only. Rules block edits once applied/forfeited. |

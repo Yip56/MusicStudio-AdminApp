@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { Btn, Badge, Card, SectionTitle, Sel, Inp, Modal, ShakeBox } from "../components/UI.jsx";
 import TimeSelect from "../components/TimeSelect.jsx";
+import RemarkField from "../components/RemarkField.jsx";
 import { fmtDate, uid } from "../utils/helpers.js";
 import { getMergedSessionsForDate, getHolidayName, getFifthWeekEnrolments, roomSupportsInstrument, defaultMakeupSlot, findMakeupConflicts } from "../domain/enrolments.js";
 import { dayStatus, fifthKey, listCalendarDays } from "../domain/calendar.js";
@@ -8,7 +9,7 @@ import { timesOverlap, toMinutes, addMinutes } from "../domain/time.js";
 import { TODAY, STATUS_META, HOURS } from "../data/seed.js";
 
 // ─── Session Card — click to open attendance popup ────────────────────────────
-function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, onDeleteSession, getSessionsOn, T, currentUser }) {
+function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, onScheduleMakeup, onRemoveDeferral, onDeleteSession, getSessionsOn, remark, onSaveRemark, T, currentUser }) {
   const defaultDefer = (() => {
     const d = new Date(sess.date + "T00:00:00");
     d.setDate(d.getDate() + 7);
@@ -27,6 +28,7 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deferShake,   setDeferShake]   = useState(0);
 
+  const marked    = sess.status === "present" || sess.status === "absent";
   const sm        = STATUS_META[sess.status] ?? { color: T.muted, bg: T.dim, label: "—" };
   const roomColor = room?.color ?? "#888";
 
@@ -85,10 +87,10 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
           background: T.panel,
           // A teacher's own classes get an accent outline so they stand out from other teachers' bookings.
           border: sess.isDeferred ? `1px solid ${T.border}` : highlightOwn ? `1.5px solid ${T.accent}` : `1px solid ${roomColor}40`,
-          borderLeft: sess.isDeferred ? `3px solid ${T.border2}` : `3px solid ${roomColor}`,
           borderRadius: 10, padding: sess.isDeferred ? "6px 12px" : "10px 12px",
           cursor: canMarkAttend ? "pointer" : "default",
-          opacity: sess.status === "pending_approval" ? 0.75 : 1,
+          // Already marked present/absent: fade the whole card a little, colours unchanged
+          opacity: sess.status === "pending_approval" ? 0.75 : marked ? 0.75 : 1,
         }}
       >
         {sess.isDeferred ? (
@@ -108,7 +110,7 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
               </span>
             )}
             {isOwnSession && (sess.status !== "pending"
-              ? <Badge label={sm.label} color={sm.color} bg={sm.bg} />
+              ? <><Badge label={sm.label} color={sm.color} bg={sm.bg} />{marked && <span aria-label="Marked" style={{ fontSize:11, color:T.muted }}>✓</span>}</>
               : <span style={{ fontSize:10, color:T.muted }}>Not marked</span>
             )}
           </div>
@@ -117,7 +119,9 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
           {displayName}{isOwnSession && enrolment?.instrument && <span style={{ fontWeight:500, color:roomColor }}> · {enrolment.instrument}</span>}
         </div>
         {isOwnSession && <div style={{ fontSize:11, color:T.muted }}>{teacher?.name ?? "—"}</div>}
-        {sess.notes && isOwnSession && <div style={{ fontSize:10, color:T.muted, marginTop:3, fontStyle:"italic" }}>{sess.notes}</div>}
+        {remark?.text && isOwnSession && (
+          <div title={remark.text} style={{ fontSize:10, color:T.muted, marginTop:3, fontStyle:"italic", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>📝 {remark.text}</div>
+        )}
         </>)}
       </div>
 
@@ -175,6 +179,11 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
                   );
                 })}
               </div>
+            )}
+
+            {/* Remarks — under attendance; this lesson/date only */}
+            {!sess.isDeferred && (
+              <RemarkField sess={sess} remark={remark} canEdit={isOwnSession} onSave={onSaveRemark} T={T} />
             )}
 
             {/* Remove Deferral — only on the original deferred session */}
@@ -289,7 +298,7 @@ function SessionCard({ sess, student, enrolment, teacher, room, onStatusChange, 
 
 // ─── Main Calendar view ───────────────────────────────────────────────────────
 export default function CalendarView({
-  students, enrolments, teachers, rooms, attendance, calendar, actions,
+  students, enrolments, teachers, rooms, attendance, remarks, calendar, actions,
   oneOffSessions,
   deferrals, addDeferral, removeDeferral, updateDeferralStatus,
   T, currentUser, sendClashRequest, isMobile, setDirty,
@@ -402,6 +411,8 @@ export default function CalendarView({
     }
     return set;
   }, [calYear, calMonth, enrolments, calendar, mineOnly, currentUser?.teacherId]);
+
+  const remarkFor = sess => (remarks ?? []).find(r => r.id === sess.id);
 
   function handleStatusChange(sess, status) {
     if (sess.isMakeup) {
@@ -714,6 +725,7 @@ export default function CalendarView({
                 onRemoveDeferral={removeDeferral}
                 onDeleteSession={handleDeleteSession}
                         getSessionsOn={getSessionsOn}
+                remark={remarkFor(sess)} onSaveRemark={actions.setRemark}
                 T={T} currentUser={currentUser} />
             ))}
           </div>
@@ -753,6 +765,7 @@ export default function CalendarView({
                         onRemoveDeferral={removeDeferral}
                         onDeleteSession={handleDeleteSession}
                         getSessionsOn={getSessionsOn}
+                        remark={remarkFor(sess)} onSaveRemark={actions.setRemark}
                         T={T} currentUser={currentUser} />
                       {sess.isMakeup && (
                         <button

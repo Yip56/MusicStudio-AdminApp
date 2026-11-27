@@ -45,6 +45,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   const rooms      = useCollection("rooms",            enabled);
   const attendance = useCollection("attendance",       enabled);
   const oneOffs    = useCollection("one_off_sessions", enabled);
+  const remarks    = useCollection("class_remarks",    enabled);
   const overrides  = useCollection("calendar_overrides", enabled);
   const discounts  = useCollection("discounts",        isAdmin);
   const products   = useCollection("products",         isAdmin);
@@ -406,6 +407,14 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
     if (!status || status === "pending") await deleteDoc(ref).catch(() => {});
     else await setDoc(ref, { enrolmentId, date, status, notes });
   }
+  // One remark per lesson on one date; doc id = the session id (recurring_<enrolment>_<date>, makeup_<id>, one-off id).
+  // Blank text removes it. teacherId is stored so the rules can let a teacher edit only their own classes.
+  async function setRemark(sess, text) {
+    const ref = doc(db, "class_remarks", sess.id);
+    const t = (text ?? "").trim();
+    if (!t) await deleteDoc(ref).catch(() => {});
+    else await setDoc(ref, { sessionId: sess.id, enrolmentId: sess.enrolmentId ?? null, teacherId: sess.teacherId ?? null, date: sess.date, text: t.slice(0, 500) });
+  }
   async function addOneOff(session) {
     const ref = session.id ? doc(db, "one_off_sessions", session.id) : doc(collection(db, "one_off_sessions"));
     await setDoc(ref, strip(session));
@@ -559,7 +568,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
   return {
     students: students.items, enrolments: enrolments.items, deposits: deposits.items,
     teachers: teachers.items, rooms: rooms.items, attendance: attendance.items,
-    oneOffSessions: oneOffs.items, discounts: discounts.items, products: products.items,
+    oneOffSessions: oneOffs.items, remarks: remarks.items, discounts: discounts.items, products: products.items,
     monthSnapshots: snapshots.items, monthRevisions: revisions.items,
     adminFlatFee: settings.adminFlatFee, instruments, tables, calendar,
     loaded: [students, enrolments, teachers, rooms].every(c => c.loaded),
@@ -569,7 +578,7 @@ export function useStudio({ enabled, actor, fees, contemporaryFees }) {
       collectDepositFor, editDepositFor, forfeitDepositFor, backfillDeposit,
       saveTeacher, removeTeacher, saveRoom, removeRoom, saveProduct, removeProduct, importProducts,
       setDayOverride, clearDayOverride, runFifthLessons, clearFifthLesson,
-      setAttendance, addOneOff, updateOneOff, deleteOneOff,
+      setAttendance, setRemark, addOneOff, updateOneOff, deleteOneOff,
       saveDiscount, deleteDiscount, setDiscountGrant, saveAdminFlatFee, finalizeMonth, saveRevision, cleanupInstruments,
       checkEnrolment, defaultDepositAmount: (e, ym) => defaultDepositAmount(e, ym, fees, contemporaryFees),
     },

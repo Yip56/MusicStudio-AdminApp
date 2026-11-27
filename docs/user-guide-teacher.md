@@ -55,6 +55,16 @@ Only the office can change these. If a date looks wrong, ask them.
 
 Mark each instrument separately for a student who has two classes on the same day.
 
+### Adding a remark to a class
+
+Under **Present / Absent** in the same window there is a **Remarks** box.
+
+1. Type your note (for example "trial lesson" or "bring exam book").
+2. Click **Save remark**. A 📝 line then shows on the class card.
+3. To remove it, clear the box and click **Clear remark**.
+
+A remark belongs to that one class on that one date only. Next week's class starts blank. Only you and the office can see remarks on your classes, and other teachers cannot see or edit them. You can also open a class from the **Rooms** page to read or edit its remark.
+
 ### If a student misses a class and you want to schedule a make-up
 
 This is available for students on a normal (full-fee) plan.

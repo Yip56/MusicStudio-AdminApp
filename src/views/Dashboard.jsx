@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Stat, Card, Avatar, Badge, SectionTitle, Btn } from "../components/UI.jsx";
-import { getMergedSessionsForDate, getScheduledCountForMonth, getAttendedCountForMonth } from "../domain/enrolments.js";
+import { getMergedSessionsForDate, getPeriodRange, getScheduledCountInRange, getAttendedCountInRange } from "../domain/enrolments.js";
 import { buildMonthRows } from "../domain/payroll.js";
 import { snapshotRowToDisplay } from "../domain/months.js";
 import { summariseDeposits } from "../domain/deposits.js";
@@ -13,7 +14,7 @@ function AttendanceBarChart({ data, T }) {
   const chartW = data.length * (barW + gap) - gap;
   const chartH = 160;
   return (
-    <svg viewBox={`0 0 ${Math.max(chartW, 200)} ${chartH + 30}`} style={{ width: "100%", maxHeight: 200 }}>
+    <svg viewBox={`0 -16 ${Math.max(chartW, 200)} ${chartH + 46}`} style={{ width: "100%", maxHeight: 200, overflow: "visible" }}>
       {data.map((d, i) => {
         const rate  = d.scheduled > 0 ? d.attended / d.scheduled : 0;
         const barH  = rate * chartH;
@@ -56,9 +57,15 @@ export default function Dashboard({
   const yearMonth = `${now_year}-${String(now_month + 1).padStart(2, "0")}`;
   const { feeStatus } = usePayrollMonth(yearMonth);
 
-  // Attendance stats (per enrolment, so a two-instrument student counts once per class)
-  const totalScheduled = enrolments.reduce((a, e) => a + getScheduledCountForMonth(e, now_year, now_month, calendar), 0);
-  const totalAttended  = enrolments.reduce((a, e) => a + getAttendedCountForMonth(e.id, now_year, now_month, attendance), 0);
+  // Attendance chart: this week / month / year, counting lessons already due (up to today).
+  // Per enrolment, so a two-instrument student counts once per class.
+  const [period, setPeriod] = useState("month");
+  const range = getPeriodRange(period, TODAY);
+  const upTo  = range.to < TODAY ? range.to : TODAY;
+  const scheduledFor = list => list.reduce((a, e) => a + getScheduledCountInRange(e, range.from, upTo, calendar), 0);
+  const attendedFor  = list => list.reduce((a, e) => a + getAttendedCountInRange(e.id, range.from, upTo, attendance), 0);
+  const totalScheduled = scheduledFor(enrolments);
+  const totalAttended  = attendedFor(enrolments);
   const attendanceRate = totalScheduled > 0 ? totalAttended / totalScheduled : 0;
 
   // Revenue: a finalized month is read from its snapshot (latest revision wins); otherwise live.
@@ -79,9 +86,7 @@ export default function Dashboard({
   // Per-teacher chart data
   const teacherChartData = (teachers ?? []).map(t => {
     const mine = enrolments.filter(e => e.teacherId === t.id);
-    const sch = mine.reduce((a, e) => a + getScheduledCountForMonth(e, now_year, now_month, calendar), 0);
-    const att = mine.reduce((a, e) => a + getAttendedCountForMonth(e.id, now_year, now_month, attendance), 0);
-    return { label: t.name.split(" ").slice(-1)[0], attended: att, scheduled: sch };
+    return { label: t.name.split(" ").slice(-1)[0], attended: attendedFor(mine), scheduled: scheduledFor(mine) };
   });
 
   const firstName = currentUser?.displayName?.split(" ")[0] || "Admin";
@@ -140,7 +145,12 @@ export default function Dashboard({
           padding: 24, boxShadow: "1px 1px 1px 0px rgba(16,25,52,0.4)"
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontSize: 16, fontWeight: 500, color: T.text }}>Monthly Attendance Overview</span>
+            <span style={{ fontSize: 16, fontWeight: 500, color: T.text }}>Attendance Overview</span>
+            <div data-search="dashboard.attendance-period" style={{ display: "flex", gap: 5 }}>
+              {[["week", "Week"], ["month", "Month"], ["year", "Year"]].map(([k, label]) => (
+                <Btn key={k} T={T} variant={period === k ? "active" : "ghost"} style={{ padding: "4px 11px", fontSize: 11 }} onClick={() => setPeriod(k)}>{label}</Btn>
+              ))}
+            </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
             <div style={{ fontSize: 24, fontWeight: 600, color: T.text }}>
@@ -149,15 +159,10 @@ export default function Dashboard({
             <span style={{
               fontSize: 10, fontWeight: 500, padding: "2px 5px", borderRadius: 2,
               background: "rgba(5,193,104,0.2)", color: "#14CA74", border: "0.6px solid rgba(5,193,104,0.2)"
-            }}>Attendance this month</span>
+            }}>Attendance this {period}</span>
           </div>
           <div style={{ height: 200 }}>
             <AttendanceBarChart data={teacherChartData} T={T} />
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-            {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map(m => (
-              <span key={m} style={{ fontSize: 10, color: T.muted }}>{m}</span>
-            ))}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 11 }}>
             <span style={{ color: T.muted }}>Potential: RM {potentialGross.toFixed(2)}</span>

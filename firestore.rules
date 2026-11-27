@@ -138,6 +138,17 @@ service cloud.firestore {
     match /attendance/{id}        { allow read, write: if isStaff(); }
     match /one_off_sessions/{id}  { allow read, write: if isStaff(); }
 
+    // Per-lesson remarks: admins edit any; a teacher only on a class that is theirs (teacherId on the doc).
+    function ownsRemark(teacherId) {
+      return teacherId != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get("teacherId", null) == teacherId;
+    }
+    match /class_remarks/{id} {
+      allow read:   if isStaff();
+      allow create, update: if isAdminOrAbove() || (isStaff() && ownsRemark(request.resource.data.teacherId));
+      allow delete: if isAdminOrAbove() || (isStaff() && ownsRemark(resource.data.teacherId));
+    }
+
     // Public-holiday overrides, studio closures and "run this 5th-week lesson" — teachers read, admins write.
     match /calendar_overrides/{id} { allow read: if isStaff(); allow write: if isAdminOrAbove(); }
 
